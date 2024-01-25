@@ -4,6 +4,20 @@
         <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <LangVersion>default</LangVersion>
+        <Version>0.1.0-alpha1</Version>
+        <Title>ahanoff.OpenIddict.DynamoDb</Title>
+        <Copyright>Copyright © 2024, Akhan Zhakiyanov. All rights reserved.</Copyright>
+        <PackageProjectUrl>https://github.com/ahanoff/OpenIddict.DynamoDb</PackageProjectUrl>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/ahanoff/OpenIddict.DynamoDb</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageTags>authentication;jwt;openidconnect;openiddict;security;dynamodb</PackageTags>
+        <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+        <Company>ahanoff</Company>
+        <Authors>Akhan Zhakiyanov</Authors>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <PackageId>ahanoff.OpenIddict.DynamoDb</PackageId>
     </PropertyGroup>
 
     <ItemGroup>
