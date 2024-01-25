@@ -1,0 +1,27 @@
+name: Build
+
+on:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dotnet: [ '8.x' ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet }}
+          dotnet-quality: 'ga'
+
+      - name: Build solution
+        working-directory: src
+        run: dotnet build
+
+      - name: Run unit-tests
+        working-directory: src
+        run: dotnet test
