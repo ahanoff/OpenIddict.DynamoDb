@@ -1,5 +1,8 @@
 namespace OpenIddict.DynamoDb.Models;
 
+/// <summary>
+/// Represents a OpenIddict scope
+/// </summary>
 public class OpenIddictDynamoDbScope
 {
     public required string Id { get; set; }

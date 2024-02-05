@@ -2,6 +2,9 @@ using System.Collections.Immutable;
 
 namespace OpenIddict.DynamoDb.Models;
 
+/// <summary>
+/// Represents a OpenIddict application
+/// </summary>
 public class OpenIddictDynamoDbApplication
 {
     public required string Id { get; set; }
