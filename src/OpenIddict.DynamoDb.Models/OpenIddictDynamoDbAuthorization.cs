@@ -10,7 +10,7 @@ public class OpenIddictDynamoDbAuthorization
     /// <summary>
     /// Gets or sets the identifier of the application associated with the current authorization.
     /// </summary>
-    public virtual string ApplicationId { get; set; }
+    public virtual required string ApplicationId { get; set; }
 
     /// <summary>
     /// Gets or sets the concurrency token.
@@ -25,7 +25,7 @@ public class OpenIddictDynamoDbAuthorization
     /// <summary>
     /// Gets or sets the unique identifier associated with the current authorization.
     /// </summary>
-    public virtual string Id { get; set; }
+    public virtual required string Id { get; set; }
 
     /// <summary>
     /// Gets or sets the additional properties associated with the current authorization.

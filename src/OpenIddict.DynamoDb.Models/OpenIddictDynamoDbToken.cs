@@ -8,12 +8,12 @@ public class OpenIddictDynamoDbToken
     /// <summary>
     /// Gets or sets the identifier of the application associated with the current token.
     /// </summary>
-    public virtual string ApplicationId { get; set; }
+    public virtual required string ApplicationId { get; set; }
 
     /// <summary>
     /// Gets or sets the identifier of the authorization associated with the current token.
     /// </summary>
-    public virtual string AuthorizationId { get; set; }
+    public virtual required string AuthorizationId { get; set; }
 
     /// <summary>
     /// Gets or sets the concurrency token.
@@ -33,7 +33,7 @@ public class OpenIddictDynamoDbToken
     /// <summary>
     /// Gets or sets the unique identifier associated with the current token.
     /// </summary>
-    public virtual string Id { get; set; }
+    public virtual required string Id { get; set; }
 
     /// <summary>
     /// Gets or sets the payload of the current token, if applicable.
