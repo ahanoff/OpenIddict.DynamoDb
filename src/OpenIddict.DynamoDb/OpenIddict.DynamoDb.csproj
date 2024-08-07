@@ -21,7 +21,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="ahanoff.OpenIddict.DynamoDb.Models" Version="0.1.0-alpha1" />
+      <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.400.3" />
       <PackageReference Include="OpenIddict.Core" Version="5.1.0" />
     </ItemGroup>
 
