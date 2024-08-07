@@ -21,10 +21,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\OpenIddict.DynamoDb.Models\OpenIddict.DynamoDb.Models.csproj" />
-    </ItemGroup>
-
-    <ItemGroup>
       <PackageReference Include="ahanoff.OpenIddict.DynamoDb.Models" Version="0.1.0-alpha1" />
       <PackageReference Include="OpenIddict.Core" Version="5.1.0" />
     </ItemGroup>

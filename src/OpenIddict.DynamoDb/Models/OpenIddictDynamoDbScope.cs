@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+
 namespace OpenIddict.DynamoDb.Models;
 
 /// <summary>
@@ -8,9 +10,9 @@ public class OpenIddictDynamoDbScope
     public required string Id { get; set; }
     public string? ConcurrencyToken { get; set; }
     public string? Description { get; set; }
-    public string? Descriptions { get; set; }
+    public IReadOnlyCollection<string> Descriptions { get; set; } = ReadOnlyCollection<string>.Empty;
     public string? DisplayName { get; set; }
-    public string? DisplayNames { get; set; }
+    public IReadOnlyCollection<string> DisplayNames { get; set; } = ReadOnlyCollection<string>.Empty;
     public required string Name { get; set; }
     public string? Properties { get; set; }
     public string? Resources { get; set; }

@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using Amazon.DynamoDBv2.DataModel;
 
 namespace OpenIddict.DynamoDb.Models;
 
