@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenIddict.DynamoDb", "OpenIddict.DynamoDb\OpenIddict.DynamoDb.csproj", "{37CC19D7-343F-4256-AAF1-56440BA4503A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenIddict.DynamoDb.Tests", "OpenIddict.DynamoDb.Tests\OpenIddict.DynamoDb.Tests.csproj", "{D0045DA4-CF0D-4F7E-845C-BEBBEB384857}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{37CC19D7-343F-4256-AAF1-56440BA4503A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{37CC19D7-343F-4256-AAF1-56440BA4503A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{37CC19D7-343F-4256-AAF1-56440BA4503A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D0045DA4-CF0D-4F7E-845C-BEBBEB384857}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D0045DA4-CF0D-4F7E-845C-BEBBEB384857}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D0045DA4-CF0D-4F7E-845C-BEBBEB384857}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D0045DA4-CF0D-4F7E-845C-BEBBEB384857}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
