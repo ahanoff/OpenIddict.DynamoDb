@@ -38,8 +38,8 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            count += response.Count;
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            count += response.Count ?? 0;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
 
@@ -133,12 +133,17 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
     public async ValueTask<TScope?> FindByIdAsync(string identifier, CancellationToken cancellationToken)
     {
         var response = await _client.GetItemAsync(new GetItemRequest { TableName = _options.ScopesTableName, Key = CreateScopeKey(identifier), ConsistentRead = true }, cancellationToken);
-        return response.Item.Count == 0 ? null : DynamoDbHelper.ToScope<TScope>(response.Item);
+        return response.Item is null || response.Item.Count == 0 ? null : DynamoDbHelper.ToScope<TScope>(response.Item);
     }
 
     public async ValueTask<TScope?> FindByNameAsync(string name, CancellationToken cancellationToken)
     {
         var lookup = await _client.GetItemAsync(new GetItemRequest { TableName = _options.ScopesTableName, Key = CreateNameLookupKey(name), ConsistentRead = true }, cancellationToken);
+        if (lookup.Item is null || lookup.Item.Count == 0)
+        {
+            return null;
+        }
+
         var scopeId = DynamoDbHelper.GetString(lookup.Item, "scope_id");
         return scopeId is null ? null : await FindByIdAsync(scopeId, cancellationToken);
     }
@@ -173,8 +178,8 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            scopeIds.AddRange(response.Items.Select(item => DynamoDbHelper.GetString(item, "sk")).Where(sk => sk is not null).Select(sk => KeyHelper.ExtractId(sk!, "SCOPE#")));
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            scopeIds.AddRange((response.Items ?? []).Select(item => DynamoDbHelper.GetString(item, "sk")).Where(sk => sk is not null).Select(sk => KeyHelper.ExtractId(sk!, "SCOPE#")));
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
 
@@ -222,7 +227,7 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
             }
 
             var response = await _client.ScanAsync(request, cancellationToken);
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (skipped < skip)
@@ -237,7 +242,7 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
                 yield return DynamoDbHelper.ToScope<TScope>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null && (!count.HasValue || yielded < count.Value));
     }
@@ -335,8 +340,8 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
             do
             {
                 var response = await _client.BatchGetItemAsync(new BatchGetItemRequest { RequestItems = requestItems }, cancellationToken);
-                if (response.Responses.TryGetValue(_options.ScopesTableName, out var responseItems)) items.AddRange(responseItems);
-                requestItems = response.UnprocessedKeys;
+                if ((response.Responses ?? []).TryGetValue(_options.ScopesTableName, out var responseItems)) items.AddRange(responseItems);
+                requestItems = response.UnprocessedKeys ?? [];
             }
             while (requestItems.Count > 0 && requestItems.Values.Any(value => value.Keys.Count > 0));
         }
