@@ -1,5 +1,3 @@
-using System.Collections.Immutable;
-
 namespace OpenIddict.DynamoDb.Models;
 
 /// <summary>
@@ -7,20 +5,20 @@ namespace OpenIddict.DynamoDb.Models;
 /// </summary>
 public class OpenIddictDynamoDbApplication
 {
-    public required string Id { get; set; }
-    public required string ClientId { get; set; }
-    public string? ClientSecret { get; set; }
-    public string? ConcurrencyToken { get; set; }
-    public string? ConsentType { get; set; }
-    public string? DisplayName { get; set; }
-    public IReadOnlyList<string> DisplayNames { get; set; } = ImmutableList<string>.Empty;
-    public IReadOnlyList<string> Permissions { get; set; } = ImmutableList<string>.Empty;
-    public IReadOnlyList<string> PostLogoutRedirectUris { get; set; } = ImmutableList<string>.Empty;
-    public string? Properties { get; set; }
-    public IReadOnlyList<string> RedirectUris { get; set; } = ImmutableList<string>.Empty;
-    public IReadOnlyList<string> Requirements { get; set; } = ImmutableList<string>.Empty;
-    public string? ClientType { get; set; }
-    public string? ApplicationType { get; set; }
-    public string? JsonWebKeySet { get; set; }
-    public IReadOnlyDictionary<string, string>? Settings { get; set; }
+    public virtual string Id { get; set; } = null!;
+    public virtual string? ClientId { get; set; }
+    public virtual string? ClientSecret { get; set; }
+    public virtual string? ClientType { get; set; }
+    public virtual string? ApplicationType { get; set; }
+    public virtual string? ConsentType { get; set; }
+    public virtual string? DisplayName { get; set; }
+    public virtual string? DisplayNames { get; set; }
+    public virtual string? Permissions { get; set; }
+    public virtual string? RedirectUris { get; set; }
+    public virtual string? PostLogoutRedirectUris { get; set; }
+    public virtual string? Requirements { get; set; }
+    public virtual string? Settings { get; set; }
+    public virtual string? JsonWebKeySet { get; set; }
+    public virtual string? Properties { get; set; }
+    public virtual string? ConcurrencyToken { get; set; } = Guid.NewGuid().ToString();
 }
