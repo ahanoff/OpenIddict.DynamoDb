@@ -1,5 +1,3 @@
-using System.Collections.Immutable;
-
 namespace OpenIddict.DynamoDb.Models;
 
 /// <summary>
@@ -7,12 +5,12 @@ namespace OpenIddict.DynamoDb.Models;
 /// </summary>
 public class OpenIddictDynamoDbAuthorization
 {
-    public virtual required string ApplicationId { get; set; }
+    public virtual string? ApplicationId { get; set; }
     public virtual string? ConcurrencyToken { get; set; } = Guid.NewGuid().ToString();
-    public virtual DateTime? CreationDate { get; set; }
-    public virtual required string Id { get; set; }
+    public virtual DateTimeOffset? CreationDate { get; set; }
+    public virtual string Id { get; set; } = null!;
     public virtual string? Properties { get; set; }
-    public virtual IReadOnlyList<string>? Scopes { get; set; } = ImmutableList.Create<string>();
+    public virtual string? Scopes { get; set; }
     public virtual string? Status { get; set; }
     public virtual string? Subject { get; set; }
     public virtual string? Type { get; set; }

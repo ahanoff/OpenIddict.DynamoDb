@@ -1,5 +1,3 @@
-using System.Collections.ObjectModel;
-
 namespace OpenIddict.DynamoDb.Models;
 
 /// <summary>
@@ -7,13 +5,13 @@ namespace OpenIddict.DynamoDb.Models;
 /// </summary>
 public class OpenIddictDynamoDbScope
 {
-    public required string Id { get; set; }
-    public string? ConcurrencyToken { get; set; }
-    public string? Description { get; set; }
-    public IReadOnlyCollection<string> Descriptions { get; set; } = ReadOnlyCollection<string>.Empty;
-    public string? DisplayName { get; set; }
-    public IReadOnlyCollection<string> DisplayNames { get; set; } = ReadOnlyCollection<string>.Empty;
-    public required string Name { get; set; }
-    public string? Properties { get; set; }
-    public string? Resources { get; set; }
+    public virtual string Id { get; set; } = null!;
+    public virtual string? ConcurrencyToken { get; set; }
+    public virtual string? Description { get; set; }
+    public virtual string? Descriptions { get; set; }
+    public virtual string? DisplayName { get; set; }
+    public virtual string? DisplayNames { get; set; }
+    public virtual string? Name { get; set; }
+    public virtual string? Properties { get; set; }
+    public virtual string? Resources { get; set; }
 }
