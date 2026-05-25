@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj" />
+  </Folder>
+</Solution>

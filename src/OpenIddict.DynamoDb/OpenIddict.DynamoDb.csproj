@@ -1,10 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
-        <LangVersion>default</LangVersion>
         <Version>0.1.0-alpha1</Version>
         <Title>ahanoff.OpenIddict.DynamoDb</Title>
         <Copyright>Copyright © 2024, Akhan Zhakiyanov. All rights reserved.</Copyright>
@@ -21,8 +17,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.400.3" />
-      <PackageReference Include="OpenIddict.Core" Version="5.1.0" />
+        <PackageReference Include="AWSSDK.DynamoDBv2" />
+        <PackageReference Include="OpenIddict.Core" />
     </ItemGroup>
 
 </Project>
