@@ -8,7 +8,7 @@ DynamoDB stores for [OpenIddict](https://github.com/openiddict/openiddict-core),
 dotnet add package ahanoff.OpenIddict.DynamoDb
 ```
 
-Requires .NET 8+ and OpenIddict 5.1+.
+Requires .NET 10 and OpenIddict 7.5+.
 
 ## Register stores
 
