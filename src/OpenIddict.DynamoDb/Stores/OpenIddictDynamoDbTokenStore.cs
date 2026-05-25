@@ -46,7 +46,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
             }, cancellationToken);
 
             count += response.Count ?? 0;
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
 
@@ -238,7 +238,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
             ConsistentRead = true
         }, cancellationToken);
 
-        if (response.Item.Count == 0)
+        if (response.Item is null || response.Item.Count == 0)
         {
             return null;
         }
@@ -256,7 +256,8 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
             ConsistentRead = true
         }, cancellationToken);
 
-        if (referenceResponse.Item.Count == 0 ||
+        if (referenceResponse.Item is null ||
+            referenceResponse.Item.Count == 0 ||
             !referenceResponse.Item.TryGetValue("token_id", out var tokenIdAttribute) ||
             string.IsNullOrEmpty(tokenIdAttribute.S))
         {
@@ -270,7 +271,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
             ConsistentRead = true
         }, cancellationToken);
 
-        if (tokenResponse.Item.Count == 0)
+        if (tokenResponse.Item is null || tokenResponse.Item.Count == 0)
         {
             return null;
         }
@@ -365,7 +366,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
 
             var response = await _client.ScanAsync(request, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -384,7 +385,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 yield return DynamoDbHelper.ToToken<TToken>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null && (!count.HasValue || yielded < count.Value));
     }
@@ -583,7 +584,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
             ConsistentRead = true
         }, cancellationToken);
 
-        var oldToken = oldResponse.Item.Count == 0 ? null : DynamoDbHelper.ToToken<TToken>(oldResponse.Item);
+        var oldToken = oldResponse.Item is null || oldResponse.Item.Count == 0 ? null : DynamoDbHelper.ToToken<TToken>(oldResponse.Item);
         var expected = token.ConcurrencyToken;
         var previousReferenceId = oldToken?.ReferenceId;
         var newReferenceId = token.ReferenceId;
@@ -770,12 +771,12 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
 
             var response = await _client.QueryAsync(request, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 yield return DynamoDbHelper.ToToken<TToken>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
     }
@@ -800,12 +801,12 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 yield return DynamoDbHelper.ToToken<TToken>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
     }
@@ -845,8 +846,8 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            tokens.AddRange(response.Items.Select(DynamoDbHelper.ToToken<TToken>));
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            tokens.AddRange((response.Items ?? []).Select(DynamoDbHelper.ToToken<TToken>));
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
 
@@ -873,12 +874,12 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 yield return DynamoDbHelper.ToToken<TToken>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
     }
@@ -922,12 +923,12 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 yield return DynamoDbHelper.ToToken<TToken>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
     }
@@ -964,8 +965,8 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            tokens.AddRange(response.Items.Select(DynamoDbHelper.ToToken<TToken>));
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            tokens.AddRange((response.Items ?? []).Select(DynamoDbHelper.ToToken<TToken>));
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null && tokens.Count < Math.Max(_options.PruneBatchSize, 0));
 
@@ -986,7 +987,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 RequestItems = requestItems
             }, cancellationToken);
 
-            requestItems = response.UnprocessedItems;
+            requestItems = response.UnprocessedItems ?? [];
         }
         while (requestItems.Count > 0 && requestItems.Values.Any(static items => items.Count > 0));
 
@@ -1002,7 +1003,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 TableName = _options.TokensTableName,
                 Key = CreateKey(tokenId),
                 UpdateExpression = "SET #status = :revoked, #token = :token",
-                ConditionExpression = "attribute_not_exists(#status) OR #status <> :revoked",
+                ConditionExpression = "attribute_exists(pk) AND (attribute_not_exists(#status) OR #status <> :revoked)",
                 ExpressionAttributeNames = new Dictionary<string, string>
                 {
                     ["#status"] = "status",

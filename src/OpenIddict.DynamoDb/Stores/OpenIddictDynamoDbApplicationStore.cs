@@ -43,7 +43,7 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
             }, cancellationToken);
 
             count += response.Count ?? 0;
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
 
@@ -184,7 +184,7 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
             ConsistentRead = true
         }, cancellationToken);
 
-        return response.Item.Count == 0 ? null : DynamoDbHelper.ToApplication<TApplication>(response.Item);
+        return response.Item is null || response.Item.Count == 0 ? null : DynamoDbHelper.ToApplication<TApplication>(response.Item);
     }
 
     public async ValueTask<TApplication?> FindByClientIdAsync(string identifier, CancellationToken cancellationToken)
@@ -195,6 +195,11 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
             Key = CreateClientIdLookupKey(identifier),
             ConsistentRead = true
         }, cancellationToken);
+
+        if (lookup.Item is null || lookup.Item.Count == 0)
+        {
+            return null;
+        }
 
         var applicationId = DynamoDbHelper.GetString(lookup.Item, "ApplicationId");
         return applicationId is null ? null : await FindByIdAsync(applicationId, cancellationToken);
@@ -284,7 +289,7 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
 
             var response = await _client.ScanAsync(request, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -303,7 +308,7 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
                 yield return DynamoDbHelper.ToApplication<TApplication>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null && (!count.HasValue || yielded < count.Value));
     }
@@ -521,13 +526,13 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            applicationIds.AddRange(response.Items
+            applicationIds.AddRange((response.Items ?? [])
                 .Where(item => string.Equals(DynamoDbHelper.GetString(item, "OriginalUri"), uri, StringComparison.Ordinal))
                 .Select(item => DynamoDbHelper.GetString(item, "sk"))
                 .Where(sk => sk is not null)
                 .Select(sk => KeyHelper.ExtractId(sk!, "APP#")));
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
 
@@ -552,12 +557,12 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
             do
             {
                 var response = await _client.BatchGetItemAsync(new BatchGetItemRequest { RequestItems = requestItems }, cancellationToken);
-                if (response.Responses.TryGetValue(_options.ApplicationsTableName, out var responseItems))
+                if ((response.Responses ?? []).TryGetValue(_options.ApplicationsTableName, out var responseItems))
                 {
                     items.AddRange(responseItems);
                 }
 
-                requestItems = response.UnprocessedKeys;
+                requestItems = response.UnprocessedKeys ?? [];
             }
             while (requestItems.Count > 0 && requestItems.Values.Any(value => value.Keys.Count > 0));
         }

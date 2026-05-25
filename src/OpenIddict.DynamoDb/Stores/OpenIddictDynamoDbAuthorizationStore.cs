@@ -45,7 +45,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
             }, cancellationToken);
 
             count += response.Count ?? 0;
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
 
@@ -150,7 +150,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
             ConsistentRead = true
         }, cancellationToken);
 
-        return response.Item.Count == 0 ? null : DynamoDbHelper.ToAuthorization<TAuthorization>(response.Item);
+        return response.Item is null || response.Item.Count == 0 ? null : DynamoDbHelper.ToAuthorization<TAuthorization>(response.Item);
     }
 
     public async IAsyncEnumerable<TAuthorization> FindBySubjectAsync(
@@ -225,7 +225,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
             var response = await _client.ScanAsync(request, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -244,7 +244,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
                 yield return DynamoDbHelper.ToAuthorization<TAuthorization>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null && (!count.HasValue || yielded < count.Value));
     }
@@ -488,12 +488,12 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
             var response = await _client.QueryAsync(request, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 yield return DynamoDbHelper.ToAuthorization<TAuthorization>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
     }
@@ -518,12 +518,12 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 yield return DynamoDbHelper.ToAuthorization<TAuthorization>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
     }
@@ -546,12 +546,12 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            foreach (var item in response.Items)
+            foreach (var item in response.Items ?? [])
             {
                 yield return DynamoDbHelper.ToAuthorization<TAuthorization>(item);
             }
 
-            lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
     }
@@ -594,7 +594,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
             Limit = 1
         }, cancellationToken);
 
-        return response.Count > 0;
+        return (response.Count ?? 0) > 0;
     }
 
     private async Task<int> FlushDeleteBatchAsync(List<WriteRequest> batch, CancellationToken cancellationToken)
@@ -613,7 +613,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
                 RequestItems = requestItems
             }, cancellationToken);
 
-            requestItems = response.UnprocessedItems;
+            requestItems = response.UnprocessedItems ?? [];
 
             if (requestItems.Count > 0 && requestItems.Values.Any(items => items.Count > 0))
             {
