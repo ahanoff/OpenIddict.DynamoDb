@@ -42,7 +42,7 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            count += response.Count;
+            count += response.Count ?? 0;
             lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
         }
         while (lastKey is not null);

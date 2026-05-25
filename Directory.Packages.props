@@ -3,7 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="AWSSDK.DynamoDBv2" Version="3.7.400.3" />
-    <PackageVersion Include="OpenIddict.Core" Version="5.1.0" />
+    <PackageVersion Include="AWSSDK.DynamoDBv2" Version="4.0.18.5" />
+    <PackageVersion Include="OpenIddict.Core" Version="7.5.0" />
   </ItemGroup>
 </Project>

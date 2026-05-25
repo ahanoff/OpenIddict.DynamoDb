@@ -45,7 +45,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            count += response.Count;
+            count += response.Count ?? 0;
             lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
         }
         while (lastKey is not null);
@@ -155,17 +155,17 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
         }
     }
 
-    public IAsyncEnumerable<TToken> FindAsync(string subject, string client, CancellationToken cancellationToken)
+    public IAsyncEnumerable<TToken> FindAsync(string? subject, string? client, CancellationToken cancellationToken)
         => FindCoreAsync(subject, client, status: null, type: null, cancellationToken);
 
-    public IAsyncEnumerable<TToken> FindAsync(string subject, string client, string status, CancellationToken cancellationToken)
+    public IAsyncEnumerable<TToken> FindAsync(string? subject, string? client, string? status, CancellationToken cancellationToken)
         => FindCoreAsync(subject, client, status, type: null, cancellationToken);
 
     public IAsyncEnumerable<TToken> FindAsync(
-        string subject,
-        string client,
-        string status,
-        string type,
+        string? subject,
+        string? client,
+        string? status,
+        string? type,
         CancellationToken cancellationToken)
         => FindCoreAsync(subject, client, status, type, cancellationToken);
 
@@ -453,6 +453,51 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
         long count = 0;
 
         await foreach (var token in QueryByAuthorizationAsync(identifier, cancellationToken).WithCancellation(cancellationToken))
+        {
+            if (await RevokeTokenAsync(token.Id, cancellationToken))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    public async ValueTask<long> RevokeAsync(string? subject, string? client, string? status, string? type, CancellationToken cancellationToken)
+    {
+        long count = 0;
+
+        await foreach (var token in FindCoreAsync(subject, client, status, type, cancellationToken).WithCancellation(cancellationToken))
+        {
+            if (await RevokeTokenAsync(token.Id, cancellationToken))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    public async ValueTask<long> RevokeByApplicationIdAsync(string identifier, CancellationToken cancellationToken)
+    {
+        long count = 0;
+
+        await foreach (var token in QueryByApplicationAsync(identifier, cancellationToken).WithCancellation(cancellationToken))
+        {
+            if (await RevokeTokenAsync(token.Id, cancellationToken))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    public async ValueTask<long> RevokeBySubjectAsync(string subject, CancellationToken cancellationToken)
+    {
+        long count = 0;
+
+        await foreach (var token in QueryBySubjectAsync(subject, cancellationToken).WithCancellation(cancellationToken))
         {
             if (await RevokeTokenAsync(token.Id, cancellationToken))
             {

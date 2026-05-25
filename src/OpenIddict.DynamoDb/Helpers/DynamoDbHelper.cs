@@ -167,13 +167,13 @@ public static class DynamoDbHelper
     public static AttributeValue ToAttr(DateTimeOffset? value) => value.HasValue ? new() { S = value.Value.ToString("o") } : new() { NULL = true };
 
     public static string? GetString(Dictionary<string, AttributeValue> attrs, string key)
-        => attrs.TryGetValue(key, out var av) && !av.NULL ? av.S : null;
+        => attrs.TryGetValue(key, out var av) && av.NULL is not true ? av.S : null;
 
     public static long? GetLong(Dictionary<string, AttributeValue> attrs, string key)
-        => attrs.TryGetValue(key, out var av) && !av.NULL && long.TryParse(av.N, out var val) ? val : null;
+        => attrs.TryGetValue(key, out var av) && av.NULL is not true && long.TryParse(av.N, out var val) ? val : null;
 
     public static DateTimeOffset? GetDateTimeOffset(Dictionary<string, AttributeValue> attrs, string key)
-        => attrs.TryGetValue(key, out var av) && !av.NULL && DateTimeOffset.TryParse(av.S, out var val) ? val : null;
+        => attrs.TryGetValue(key, out var av) && av.NULL is not true && DateTimeOffset.TryParse(av.S, out var val) ? val : null;
 
     private static void Add(Dictionary<string, AttributeValue> attributes, string key, string? value)
     {

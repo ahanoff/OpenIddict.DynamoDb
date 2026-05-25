@@ -44,7 +44,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            count += response.Count;
+            count += response.Count ?? 0;
             lastKey = response.LastEvaluatedKey.Count == 0 ? null : response.LastEvaluatedKey;
         }
         while (lastKey is not null);
@@ -113,7 +113,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
     public async IAsyncEnumerable<TAuthorization> FindAsync(
         string? subject, string? client,
         string? status, string? type,
-        ImmutableArray<string> scopes,
+        ImmutableArray<string>? scopes,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var results = subject is not null
@@ -556,7 +556,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
         while (lastKey is not null);
     }
 
-    private static bool Matches(TAuthorization authorization, string? status, string? type, ImmutableArray<string> scopes)
+    private static bool Matches(TAuthorization authorization, string? status, string? type, ImmutableArray<string>? scopes)
     {
         if (status is not null && !string.Equals(authorization.Status, status, StringComparison.Ordinal))
         {
@@ -568,10 +568,10 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
             return false;
         }
 
-        if (!scopes.IsDefaultOrEmpty)
+        if (scopes is { IsDefaultOrEmpty: false })
         {
             var authorizationScopes = JsonSerializationHelper.DeserializeArray(authorization.Scopes).ToHashSet(StringComparer.Ordinal);
-            if (!scopes.All(authorizationScopes.Contains))
+            if (!scopes.Value.All(authorizationScopes.Contains))
             {
                 return false;
             }
