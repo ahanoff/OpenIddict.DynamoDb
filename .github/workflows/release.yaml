@@ -12,9 +12,6 @@ jobs:
   release:
     runs-on: ubuntu-latest
 
-    env:
-      VERSION: ${{ github.event.release.tag_name }}
-
     steps:
       - uses: actions/checkout@v6
 
@@ -22,8 +19,8 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Pack
-        run: dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=$VERSION -o dist
-
       - name: Publish to NuGet
-        run: dotnet nuget push dist/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: make publish
