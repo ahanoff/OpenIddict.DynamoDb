@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Publish to NuGet
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: make publish

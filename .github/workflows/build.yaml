@@ -22,9 +22,9 @@ jobs:
           global-json-file: global.json
 
       - name: Build solution
-        run: dotnet build
+        run: make build
 
       - name: Run integration tests
         env:
           AWS_ENDPOINT_URL: http://localhost:8000
-        run: dotnet test
+        run: make test
