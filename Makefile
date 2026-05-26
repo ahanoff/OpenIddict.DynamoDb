@@ -1,4 +1,4 @@
-VERSION ?= 0.0.0-dev
+VERSION ?= 0.1.0-beta1
 NUGET_SOURCE ?= https://api.nuget.org/v3/index.json
 NUGET_API_KEY ?=
 
