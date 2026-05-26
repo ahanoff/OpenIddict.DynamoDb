@@ -1,9 +1,16 @@
 {
   "name": "@ahanoff/openiddict-dynamodb-pulumi",
   "version": "0.1.0-beta1",
+  "type": "module",
   "description": "Pulumi component for OpenIddict.DynamoDb tables",
-  "main": "index.ts",
-  "types": "index.ts",
+  "main": "bin/index.js",
+  "types": "bin/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./bin/index.js",
+      "types": "./bin/index.d.ts"
+    }
+  },
   "author": "Akhan Zhakiyanov",
   "license": "Apache-2.0",
   "repository": {

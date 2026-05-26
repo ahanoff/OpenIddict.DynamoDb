@@ -1,4 +1,4 @@
-import { AttributeType, BillingMode, ProjectionType, Table, TableProps } from "aws-cdk-lib/aws-dynamodb";
+import { AttributeType, BillingMode, ProjectionType, Table, type TableProps } from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 
 export interface OpenIddictDynamoDbProps {

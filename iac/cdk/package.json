@@ -1,9 +1,16 @@
 {
   "name": "@ahanoff/openiddict-dynamodb-cdk",
   "version": "0.1.0-beta1",
+  "type": "module",
   "description": "CDK construct for OpenIddict.DynamoDb tables",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/index.js",
+      "types": "./lib/index.d.ts"
+    }
+  },
   "author": "Akhan Zhakiyanov",
   "license": "Apache-2.0",
   "repository": {
