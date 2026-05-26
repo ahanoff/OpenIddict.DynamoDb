@@ -12,6 +12,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
 
+    env:
+      VERSION: ${{ github.event.release.tag_name }}
+
     steps:
       - uses: actions/checkout@v6
 
@@ -19,14 +22,8 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Extract version from release tag
-        id: version
-        run: echo "VERSION=${GITHUB_EVENT_RELEASE_TAG_NAME#v}" >> "$GITHUB_OUTPUT"
-        env:
-          GITHUB_EVENT_RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
-
       - name: Pack
-        run: dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=${{ steps.version.outputs.VERSION }} -o dist
+        run: dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=${VERSION#v} -o dist
 
       - name: Publish to NuGet
         run: dotnet nuget push dist/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
