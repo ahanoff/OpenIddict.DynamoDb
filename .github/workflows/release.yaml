@@ -1,9 +1,9 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - '*'
+  release:
+    types:
+      - published
 
 permissions:
   contents: write
@@ -19,15 +19,21 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Extract version from tag
+      - name: Extract version from release tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Tag '$TAG' is not semver (expected v1.2.3 or 1.2.3)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Pack
         run: dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=${{ steps.version.outputs.VERSION }} -o dist
 
-      - name: Create GitHub Release
+      - name: Upload .nupkg to release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
           files: dist/*.nupkg
