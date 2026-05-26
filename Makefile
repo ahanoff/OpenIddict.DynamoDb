@@ -8,7 +8,7 @@ build:
 	dotnet build
 
 test:
-	dotnet test
+	AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL} dotnet test
 
 pack:
 	dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=$(VERSION) -o dist
