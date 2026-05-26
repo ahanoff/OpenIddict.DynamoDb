@@ -1,13 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
-        <LangVersion>default</LangVersion>
-    </PropertyGroup>
-
-    <PropertyGroup>
         <PackageId>ahanoff.OpenIddict.DynamoDb</PackageId>
         <Version>0.1.0-beta1</Version>
         <Title>ahanoff.OpenIddict.DynamoDb</Title>
