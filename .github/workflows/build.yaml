@@ -2,10 +2,17 @@ name: Build
 
 on:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    services:
+      dynamodb-local:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
 
     steps:
       - uses: actions/checkout@v4
@@ -17,5 +24,7 @@ jobs:
       - name: Build solution
         run: dotnet build
 
-      - name: Run unit-tests
+      - name: Run integration tests
+        env:
+          AWS_ENDPOINT_URL: http://localhost:8000
         run: dotnet test

@@ -1064,6 +1064,7 @@ public class OpenIddictDynamoDbTokenStore<TToken> : IOpenIddictTokenStore<TToken
 
     private static bool HasConditionalCheckFailure(TransactionCanceledException exception)
         => exception.CancellationReasons is null ||
+           exception.CancellationReasons.Count == 0 ||
            exception.CancellationReasons.Any(static reason => string.Equals(reason.Code, "ConditionalCheckFailed", StringComparison.Ordinal));
 
     private static OpenIddictExceptions.ConcurrencyException CreateConcurrencyException(Exception exception)
