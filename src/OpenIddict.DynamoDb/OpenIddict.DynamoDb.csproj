@@ -7,7 +7,7 @@
         <Description>DynamoDB stores for OpenIddict.</Description>
         <Authors>Akhan Zhakiyanov</Authors>
         <Company>ahanoff</Company>
-        <Copyright>Copyright © 2024 Akhan Zhakiyanov. All rights reserved.</Copyright>
+        <Copyright>Copyright © 2024-2026 Akhan Zhakiyanov. All rights reserved.</Copyright>
         <PackageProjectUrl>https://github.com/ahanoff/OpenIddict.DynamoDb</PackageProjectUrl>
         <RepositoryUrl>https://github.com/ahanoff/OpenIddict.DynamoDb</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
