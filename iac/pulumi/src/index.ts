@@ -1,7 +1,7 @@
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 
-type TableArgs = Omit<aws.dynamodb.TableArgs, "name" | "hashKey" | "rangeKey" | "attributes" | "globalSecondaryIndexes" | "ttl" | "tags">;
+type TableArgs = Omit<aws.dynamodb.TableArgs, "hashKey" | "rangeKey" | "attributes" | "globalSecondaryIndexes" | "ttl" | "tags">;
 
 export interface OpenIddictDynamoDbArgs {
   applicationsTableName?: string;

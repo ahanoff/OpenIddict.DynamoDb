@@ -1,7 +1,7 @@
 import { AttributeType, BillingMode, ProjectionType, Table, type TableProps } from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 
-type TableConfig = Omit<TableProps, "tableName" | "partitionKey" | "sortKey">;
+type TableConfig = Omit<TableProps, "partitionKey" | "sortKey">;
 
 export interface OpenIddictDynamoDbProps {
   readonly applicationsTableName?: string;
