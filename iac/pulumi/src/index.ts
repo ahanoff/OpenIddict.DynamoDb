@@ -1,12 +1,36 @@
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 
+interface TableConfig {
+  billingMode?: pulumi.Input<string>;
+  readCapacity?: pulumi.Input<number>;
+  writeCapacity?: pulumi.Input<number>;
+}
+
 export interface OpenIddictDynamoDbArgs {
   applicationsTableName?: string;
   authorizationsTableName?: string;
   scopesTableName?: string;
   tokensTableName?: string;
   tags?: Record<string, string>;
+  tableConfig?: TableConfig;
+  applicationsTableConfig?: TableConfig;
+  authorizationsTableConfig?: TableConfig;
+  scopesTableConfig?: TableConfig;
+  tokensTableConfig?: TableConfig;
+}
+
+function resolveConfig(base: TableConfig, override: TableConfig | undefined): {
+  billingMode: pulumi.Input<string>;
+  readCapacity?: pulumi.Input<number>;
+  writeCapacity?: pulumi.Input<number>;
+} {
+  const merged = { ...base, ...override };
+  return {
+    billingMode: merged.billingMode ?? "PAY_PER_REQUEST",
+    ...(merged.billingMode === "PROVISIONED" || merged.readCapacity ? { readCapacity: merged.readCapacity ?? 5 } : {}),
+    ...(merged.billingMode === "PROVISIONED" || merged.writeCapacity ? { writeCapacity: merged.writeCapacity ?? 5 } : {}),
+  };
 }
 
 export class OpenIddictDynamoDb extends pulumi.ComponentResource {
@@ -24,18 +48,19 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
 
     const defaultOpts = { parent: this };
     const tags = args?.tags ?? {};
+    const baseConfig = args?.tableConfig ?? {};
 
     this.applicationsTable = new aws.dynamodb.Table(
       `${name}-applications`,
       {
         name: args?.applicationsTableName ?? "OpenIddictApplications",
-        billingMode: "PAY_PER_REQUEST",
         hashKey: "pk",
         rangeKey: "sk",
         attributes: [
           { name: "pk", type: "S" },
           { name: "sk", type: "S" },
         ],
+        ...resolveConfig(baseConfig, args?.applicationsTableConfig),
         tags,
       },
       defaultOpts,
@@ -45,13 +70,13 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
       `${name}-scopes`,
       {
         name: args?.scopesTableName ?? "OpenIddictScopes",
-        billingMode: "PAY_PER_REQUEST",
         hashKey: "pk",
         rangeKey: "sk",
         attributes: [
           { name: "pk", type: "S" },
           { name: "sk", type: "S" },
         ],
+        ...resolveConfig(baseConfig, args?.scopesTableConfig),
         tags,
       },
       defaultOpts,
@@ -61,7 +86,6 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
       `${name}-authorizations`,
       {
         name: args?.authorizationsTableName ?? "OpenIddictAuthorizations",
-        billingMode: "PAY_PER_REQUEST",
         hashKey: "pk",
         rangeKey: "sk",
         attributes: [
@@ -86,6 +110,7 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
             projectionType: "ALL",
           },
         ],
+        ...resolveConfig(baseConfig, args?.authorizationsTableConfig),
         tags,
       },
       defaultOpts,
@@ -95,7 +120,6 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
       `${name}-tokens`,
       {
         name: args?.tokensTableName ?? "OpenIddictTokens",
-        billingMode: "PAY_PER_REQUEST",
         hashKey: "pk",
         rangeKey: "sk",
         attributes: [
@@ -140,6 +164,7 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
           attributeName: "ttl",
           enabled: true,
         },
+        ...resolveConfig(baseConfig, args?.tokensTableConfig),
         tags,
       },
       defaultOpts,

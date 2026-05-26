@@ -1,12 +1,18 @@
 import { AttributeType, BillingMode, ProjectionType, Table, type TableProps } from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 
+type TableConfig = Omit<TableProps, "tableName" | "partitionKey" | "sortKey">;
+
 export interface OpenIddictDynamoDbProps {
   readonly applicationsTableName?: string;
   readonly authorizationsTableName?: string;
   readonly scopesTableName?: string;
   readonly tokensTableName?: string;
-  readonly tableProps?: Omit<TableProps, "tableName" | "partitionKey" | "sortKey">;
+  readonly tableProps?: TableConfig;
+  readonly applicationsTableProps?: TableConfig;
+  readonly authorizationsTableProps?: TableConfig;
+  readonly scopesTableProps?: TableConfig;
+  readonly tokensTableProps?: TableConfig;
 }
 
 export class OpenIddictDynamoDb extends Construct {
@@ -18,7 +24,7 @@ export class OpenIddictDynamoDb extends Construct {
   constructor(scope: Construct, id: string, props?: OpenIddictDynamoDbProps) {
     super(scope, id);
 
-    const baseProps: Omit<TableProps, "tableName" | "partitionKey" | "sortKey"> = {
+    const base: TableConfig = {
       billingMode: BillingMode.PAY_PER_REQUEST,
       ...props?.tableProps,
     };
@@ -27,21 +33,24 @@ export class OpenIddictDynamoDb extends Construct {
       tableName: props?.applicationsTableName ?? "OpenIddictApplications",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
-      ...baseProps,
+      ...base,
+      ...props?.applicationsTableProps,
     });
 
     this.scopesTable = new Table(this, "Scopes", {
       tableName: props?.scopesTableName ?? "OpenIddictScopes",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
-      ...baseProps,
+      ...base,
+      ...props?.scopesTableProps,
     });
 
     this.authorizationsTable = new Table(this, "Authorizations", {
       tableName: props?.authorizationsTableName ?? "OpenIddictAuthorizations",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
-      ...baseProps,
+      ...base,
+      ...props?.authorizationsTableProps,
     });
 
     this.authorizationsTable.addGlobalSecondaryIndex({
@@ -62,7 +71,8 @@ export class OpenIddictDynamoDb extends Construct {
       tableName: props?.tokensTableName ?? "OpenIddictTokens",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
-      ...baseProps,
+      ...base,
+      ...props?.tokensTableProps,
     });
 
     this.tokensTable.addGlobalSecondaryIndex({

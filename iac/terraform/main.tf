@@ -11,7 +11,7 @@ terraform {
 
 resource "aws_dynamodb_table" "applications" {
   name         = var.applications_table_name
-  billing_mode = "PAY_PER_REQUEST"
+  billing_mode = var.applications_billing_mode
   hash_key     = "pk"
   range_key    = "sk"
 
@@ -25,12 +25,20 @@ resource "aws_dynamodb_table" "applications" {
     type = "S"
   }
 
+  dynamic "read_capacity" {
+    for_each = var.applications_billing_mode == "PROVISIONED" ? [1] : []
+    content {}
+  }
+
+  write_capacity = var.applications_billing_mode == "PROVISIONED" ? var.applications_write_capacity : null
+  read_capacity  = var.applications_billing_mode == "PROVISIONED" ? var.applications_read_capacity : null
+
   tags = var.tags
 }
 
 resource "aws_dynamodb_table" "authorizations" {
   name         = var.authorizations_table_name
-  billing_mode = "PAY_PER_REQUEST"
+  billing_mode = var.authorizations_billing_mode
   hash_key     = "pk"
   range_key    = "sk"
 
@@ -78,12 +86,15 @@ resource "aws_dynamodb_table" "authorizations" {
     projection_type = "ALL"
   }
 
+  write_capacity = var.authorizations_billing_mode == "PROVISIONED" ? var.authorizations_write_capacity : null
+  read_capacity  = var.authorizations_billing_mode == "PROVISIONED" ? var.authorizations_read_capacity : null
+
   tags = var.tags
 }
 
 resource "aws_dynamodb_table" "scopes" {
   name         = var.scopes_table_name
-  billing_mode = "PAY_PER_REQUEST"
+  billing_mode = var.scopes_billing_mode
   hash_key     = "pk"
   range_key    = "sk"
 
@@ -97,12 +108,15 @@ resource "aws_dynamodb_table" "scopes" {
     type = "S"
   }
 
+  write_capacity = var.scopes_billing_mode == "PROVISIONED" ? var.scopes_write_capacity : null
+  read_capacity  = var.scopes_billing_mode == "PROVISIONED" ? var.scopes_read_capacity : null
+
   tags = var.tags
 }
 
 resource "aws_dynamodb_table" "tokens" {
   name         = var.tokens_table_name
-  billing_mode = "PAY_PER_REQUEST"
+  billing_mode = var.tokens_billing_mode
   hash_key     = "pk"
   range_key    = "sk"
 
@@ -188,6 +202,9 @@ resource "aws_dynamodb_table" "tokens" {
     attribute_name = "ttl"
     enabled        = true
   }
+
+  write_capacity = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_write_capacity : null
+  read_capacity  = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_read_capacity : null
 
   tags = var.tags
 }
