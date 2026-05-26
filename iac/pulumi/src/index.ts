@@ -4,10 +4,6 @@ import * as pulumi from "@pulumi/pulumi";
 type TableArgs = Omit<aws.dynamodb.TableArgs, "hashKey" | "rangeKey" | "attributes" | "globalSecondaryIndexes" | "ttl" | "tags">;
 
 export interface OpenIddictDynamoDbArgs {
-  applicationsTableName?: string;
-  authorizationsTableName?: string;
-  scopesTableName?: string;
-  tokensTableName?: string;
   tags?: Record<string, string>;
   tableArgs?: TableArgs;
   applicationsTableArgs?: TableArgs;
@@ -36,7 +32,7 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
     this.applicationsTable = new aws.dynamodb.Table(
       `${name}-applications`,
       {
-        name: args?.applicationsTableName ?? "OpenIddictApplications",
+        name: "OpenIddictApplications",
         hashKey: "pk",
         rangeKey: "sk",
         attributes: [
@@ -53,7 +49,7 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
     this.scopesTable = new aws.dynamodb.Table(
       `${name}-scopes`,
       {
-        name: args?.scopesTableName ?? "OpenIddictScopes",
+        name: "OpenIddictScopes",
         hashKey: "pk",
         rangeKey: "sk",
         attributes: [
@@ -70,7 +66,7 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
     this.authorizationsTable = new aws.dynamodb.Table(
       `${name}-authorizations`,
       {
-        name: args?.authorizationsTableName ?? "OpenIddictAuthorizations",
+        name: "OpenIddictAuthorizations",
         hashKey: "pk",
         rangeKey: "sk",
         attributes: [
@@ -105,7 +101,7 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
     this.tokensTable = new aws.dynamodb.Table(
       `${name}-tokens`,
       {
-        name: args?.tokensTableName ?? "OpenIddictTokens",
+        name: "OpenIddictTokens",
         hashKey: "pk",
         rangeKey: "sk",
         attributes: [

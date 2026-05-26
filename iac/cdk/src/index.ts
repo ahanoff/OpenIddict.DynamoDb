@@ -4,10 +4,6 @@ import { Construct } from "constructs";
 type TableConfig = Omit<TableProps, "partitionKey" | "sortKey">;
 
 export interface OpenIddictDynamoDbProps {
-  readonly applicationsTableName?: string;
-  readonly authorizationsTableName?: string;
-  readonly scopesTableName?: string;
-  readonly tokensTableName?: string;
   readonly tableProps?: TableConfig;
   readonly applicationsTableProps?: TableConfig;
   readonly authorizationsTableProps?: TableConfig;
@@ -30,7 +26,7 @@ export class OpenIddictDynamoDb extends Construct {
     };
 
     this.applicationsTable = new Table(this, "Applications", {
-      tableName: props?.applicationsTableName ?? "OpenIddictApplications",
+      tableName: "OpenIddictApplications",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
       ...base,
@@ -38,7 +34,7 @@ export class OpenIddictDynamoDb extends Construct {
     });
 
     this.scopesTable = new Table(this, "Scopes", {
-      tableName: props?.scopesTableName ?? "OpenIddictScopes",
+      tableName: "OpenIddictScopes",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
       ...base,
@@ -46,7 +42,7 @@ export class OpenIddictDynamoDb extends Construct {
     });
 
     this.authorizationsTable = new Table(this, "Authorizations", {
-      tableName: props?.authorizationsTableName ?? "OpenIddictAuthorizations",
+      tableName: "OpenIddictAuthorizations",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
       ...base,
@@ -68,7 +64,7 @@ export class OpenIddictDynamoDb extends Construct {
     });
 
     this.tokensTable = new Table(this, "Tokens", {
-      tableName: props?.tokensTableName ?? "OpenIddictTokens",
+      tableName: "OpenIddictTokens",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
       ...base,
