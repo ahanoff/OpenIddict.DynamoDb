@@ -1,20 +1,28 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <Version>0.1.0-alpha1</Version>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <LangVersion>default</LangVersion>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <PackageId>ahanoff.OpenIddict.DynamoDb</PackageId>
+        <Version>0.1.0-beta1</Version>
         <Title>ahanoff.OpenIddict.DynamoDb</Title>
-        <Copyright>Copyright © 2024, Akhan Zhakiyanov. All rights reserved.</Copyright>
+        <Description>DynamoDB stores for OpenIddict, designed around DynamoDB access patterns.</Description>
+        <Authors>Akhan Zhakiyanov</Authors>
+        <Company>ahanoff</Company>
+        <Copyright>Copyright © 2024 Akhan Zhakiyanov. All rights reserved.</Copyright>
         <PackageProjectUrl>https://github.com/ahanoff/OpenIddict.DynamoDb</PackageProjectUrl>
-        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <RepositoryUrl>https://github.com/ahanoff/OpenIddict.DynamoDb</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
         <PackageTags>authentication;jwt;openidconnect;openiddict;security;dynamodb</PackageTags>
-        <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-        <Company>ahanoff</Company>
-        <Authors>Akhan Zhakiyanov</Authors>
-        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-        <PackageId>ahanoff.OpenIddict.DynamoDb</PackageId>
         <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageIcon>icon.png</PackageIcon>
     </PropertyGroup>
 
     <ItemGroup>
