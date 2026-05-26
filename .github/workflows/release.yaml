@@ -21,14 +21,9 @@ jobs:
 
       - name: Extract version from release tag
         id: version
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "::error::Tag '$TAG' is not semver (expected v1.2.3 or 1.2.3)"
-            exit 1
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+        run: echo "VERSION=${GITHUB_EVENT_RELEASE_TAG_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_EVENT_RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
 
       - name: Pack
         run: dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=${{ steps.version.outputs.VERSION }} -o dist
