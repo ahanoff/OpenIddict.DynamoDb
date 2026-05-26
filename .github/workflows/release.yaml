@@ -28,8 +28,5 @@ jobs:
       - name: Pack
         run: dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=${{ steps.version.outputs.VERSION }} -o dist
 
-      - name: Upload .nupkg to release
-        uses: actions/upload-artifact@v4
-        with:
-          name: package
-          path: dist/*.nupkg
+      - name: Publish to NuGet
+        run: dotnet nuget push dist/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
