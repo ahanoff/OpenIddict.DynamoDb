@@ -23,7 +23,7 @@ jobs:
           global-json-file: global.json
 
       - name: Pack
-        run: dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=${VERSION#v} -o dist
+        run: dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=$VERSION -o dist
 
       - name: Publish to NuGet
         run: dotnet nuget push dist/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
