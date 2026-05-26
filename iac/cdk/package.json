@@ -1,0 +1,26 @@
+{
+  "name": "@ahanoff/openiddict-dynamodb-cdk",
+  "version": "0.1.0-beta1",
+  "description": "CDK construct for OpenIddict.DynamoDb tables",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "author": "Akhan Zhakiyanov",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ahanoff/OpenIddict.DynamoDb",
+    "directory": "iac/cdk"
+  },
+  "peerDependencies": {
+    "aws-cdk-lib": "^2.0.0",
+    "constructs": "^10.0.0"
+  },
+  "devDependencies": {
+    "aws-cdk-lib": "^2.0.0",
+    "constructs": "^10.0.0",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "build": "tsc"
+  }
+}
