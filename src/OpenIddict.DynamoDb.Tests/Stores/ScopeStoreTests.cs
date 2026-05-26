@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Globalization;
+using System.Text.Json;
 using Amazon.DynamoDBv2.Model;
 using OpenIddict.Abstractions;
 using OpenIddict.DynamoDb.Models;
@@ -165,6 +168,300 @@ public sealed class ScopeStoreTests
             () => _store.DeleteAsync(scope, CancellationToken.None).AsTask());
 
         AssertDynamoDbConcurrencyFailure(exception);
+    }
+
+
+    [Fact]
+    public async Task FindByNamesAsync_ReturnsMatchingScopes()
+    {
+        var name1 = TestEntities.NewId("scope-name");
+        var name2 = TestEntities.NewId("scope-name");
+        var scope1 = TestEntities.CreateScope(name: name1);
+        var scope2 = TestEntities.CreateScope(name: name2);
+        var scope3 = TestEntities.CreateScope();
+        await _store.CreateAsync(scope1, CancellationToken.None);
+        await _store.CreateAsync(scope2, CancellationToken.None);
+        await _store.CreateAsync(scope3, CancellationToken.None);
+
+        var results = await _store.FindByNamesAsync(ImmutableArray.Create(name1, name2), CancellationToken.None).ToListAsync();
+
+        Assert.Equal(2, results.Count);
+        Assert.Contains(results, s => s.Id == scope1.Id);
+        Assert.Contains(results, s => s.Id == scope2.Id);
+    }
+
+    [Fact]
+    public async Task FindByResourceAsync_ReturnsMatchingScopes()
+    {
+        var resource = $"resource-{Guid.NewGuid():N}";
+        var scope = TestEntities.CreateScope();
+        scope.Resources = TestEntities.JsonArray(resource);
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        var results = await _store.FindByResourceAsync(resource, CancellationToken.None).ToListAsync();
+
+        Assert.Single(results);
+        Assert.Equal(scope.Id, results[0].Id);
+    }
+
+    [Fact]
+    public async Task InstantiateAsync_ReturnsNewInstance()
+    {
+        var scope = await _store.InstantiateAsync(CancellationToken.None);
+        Assert.NotNull(scope);
+        Assert.NotNull(scope.ConcurrencyToken);
+        Assert.NotEmpty(scope.ConcurrencyToken);
+    }
+
+    [Fact]
+    public async Task GetDescriptionAsync_ReturnsDescription()
+    {
+        var scope = TestEntities.CreateScope();
+        var result = await _store.GetDescriptionAsync(scope, CancellationToken.None);
+        Assert.Equal(scope.Description, result);
+    }
+
+    [Fact]
+    public async Task GetDescriptionsAsync_ReturnsDeserializedDictionary()
+    {
+        var scope = TestEntities.CreateScope();
+        var result = await _store.GetDescriptionsAsync(scope, CancellationToken.None);
+        Assert.NotNull(result);
+    }
+
+    [Fact]
+    public async Task GetDisplayNameAsync_ReturnsDisplayName()
+    {
+        var scope = TestEntities.CreateScope();
+        var result = await _store.GetDisplayNameAsync(scope, CancellationToken.None);
+        Assert.Equal(scope.DisplayName, result);
+    }
+
+    [Fact]
+    public async Task GetDisplayNamesAsync_ReturnsDeserializedDictionary()
+    {
+        var scope = TestEntities.CreateScope();
+        var result = await _store.GetDisplayNamesAsync(scope, CancellationToken.None);
+        Assert.NotNull(result);
+    }
+
+    [Fact]
+    public async Task GetIdAsync_ReturnsId()
+    {
+        var scope = TestEntities.CreateScope();
+        var result = await _store.GetIdAsync(scope, CancellationToken.None);
+        Assert.Equal(scope.Id, result);
+    }
+
+    [Fact]
+    public async Task GetNameAsync_ReturnsName()
+    {
+        var scope = TestEntities.CreateScope();
+        var result = await _store.GetNameAsync(scope, CancellationToken.None);
+        Assert.Equal(scope.Name, result);
+    }
+
+    [Fact]
+    public async Task GetPropertiesAsync_ReturnsDeserializedDictionary()
+    {
+        var scope = TestEntities.CreateScope();
+        var result = await _store.GetPropertiesAsync(scope, CancellationToken.None);
+        Assert.NotNull(result);
+    }
+
+    [Fact]
+    public async Task GetResourcesAsync_ReturnsDeserializedArray()
+    {
+        var scope = TestEntities.CreateScope();
+        var result = await _store.GetResourcesAsync(scope, CancellationToken.None);
+        Assert.False(result.IsDefaultOrEmpty);
+    }
+
+    [Fact]
+    public async Task SetDescriptionAsync_UpdatesDescription()
+    {
+        var scope = TestEntities.CreateScope();
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        await _store.SetDescriptionAsync(scope, "New description", CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(scope.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal("New description", stored.Description);
+    }
+
+    [Fact]
+    public async Task SetDescriptionsAsync_UpdatesDescriptions()
+    {
+        var scope = TestEntities.CreateScope();
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        var descriptions = ImmutableDictionary.CreateBuilder<CultureInfo, string>();
+        descriptions[CultureInfo.GetCultureInfo("en")] = "English Description";
+        await _store.SetDescriptionsAsync(scope, descriptions.ToImmutable(), CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(scope.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        var result = await _store.GetDescriptionsAsync(stored, CancellationToken.None);
+        Assert.Equal("English Description", result[CultureInfo.GetCultureInfo("en")]);
+    }
+
+    [Fact]
+    public async Task SetDisplayNameAsync_UpdatesDisplayName()
+    {
+        var scope = TestEntities.CreateScope();
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        await _store.SetDisplayNameAsync(scope, "New Display Name", CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(scope.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal("New Display Name", stored.DisplayName);
+    }
+
+    [Fact]
+    public async Task SetDisplayNamesAsync_UpdatesDisplayNames()
+    {
+        var scope = TestEntities.CreateScope();
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        var names = ImmutableDictionary.CreateBuilder<CultureInfo, string>();
+        names[CultureInfo.GetCultureInfo("en")] = "English Name";
+        names[CultureInfo.GetCultureInfo("de")] = "German Name";
+        await _store.SetDisplayNamesAsync(scope, names.ToImmutable(), CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(scope.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        var result = await _store.GetDisplayNamesAsync(stored, CancellationToken.None);
+        Assert.Equal("English Name", result[CultureInfo.GetCultureInfo("en")]);
+        Assert.Equal("German Name", result[CultureInfo.GetCultureInfo("de")]);
+    }
+
+    [Fact]
+    public async Task SetNameAsync_UpdatesName()
+    {
+        var scope = TestEntities.CreateScope();
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        var newName = TestEntities.NewId("new-scope-name");
+        await _store.SetNameAsync(scope, newName, CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(scope.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(newName, stored.Name);
+    }
+
+    [Fact]
+    public async Task SetPropertiesAsync_UpdatesProperties()
+    {
+        var scope = TestEntities.CreateScope();
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        using var doc = JsonDocument.Parse("{\"NewProp\":\"NewVal\"}");
+        var properties = ImmutableDictionary.CreateRange(new[] { KeyValuePair.Create("NewProp", doc.RootElement) });
+        await _store.SetPropertiesAsync(scope, properties, CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(scope.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        var result = await _store.GetPropertiesAsync(stored, CancellationToken.None);
+        Assert.True(result.ContainsKey("NewProp"));
+    }
+
+    [Fact]
+    public async Task SetResourcesAsync_UpdatesResources()
+    {
+        var scope = TestEntities.CreateScope();
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        var newResources = ImmutableArray.Create($"resource-{Guid.NewGuid():N}", $"resource-{Guid.NewGuid():N}");
+        await _store.SetResourcesAsync(scope, newResources, CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(scope.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        var result = await _store.GetResourcesAsync(stored, CancellationToken.None);
+        Assert.Equal(newResources, result);
+    }
+
+    [Fact]
+    public async Task CountAsync_WithIQueryable_ThrowsNotSupportedException()
+    {
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => _store.CountAsync<OpenIddictDynamoDbScope>(q => q, CancellationToken.None).AsTask());
+    }
+
+    [Fact]
+    public async Task GetAsync_ThrowsNotSupportedException()
+    {
+        var scope = TestEntities.CreateScope();
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => _store.GetAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).AsTask());
+    }
+
+    [Fact]
+    public async Task ListAsync_WithIQueryable_ThrowsNotSupportedException()
+    {
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => _store.ListAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).ToListAsync());
+    }
+
+    [Fact]
+    public async Task FindByNamesAsync_EmptyArray_ReturnsEmpty()
+    {
+        var scope = TestEntities.CreateScope();
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        var results = await _store.FindByNamesAsync(ImmutableArray<string>.Empty, CancellationToken.None).ToListAsync();
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task FindByResourceAsync_NotFound_ReturnsEmpty()
+    {
+        var results = await _store.FindByResourceAsync("nonexistent-resource", CancellationToken.None).ToListAsync();
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RenamingScope_OldNameLookupStopsResolving()
+    {
+        var originalName = TestEntities.NewId("scope-name");
+        var scope = TestEntities.CreateScope(name: originalName);
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        var newName = TestEntities.NewId("renamed-scope");
+        await _store.SetNameAsync(scope, newName, CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var byOldName = await _store.FindByNameAsync(originalName, CancellationToken.None);
+        Assert.Null(byOldName);
+
+        var byNewName = await _store.FindByNameAsync(newName, CancellationToken.None);
+        Assert.NotNull(byNewName);
+        Assert.Equal(scope.Id, byNewName.Id);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RemovingResource_ResourceLookupStopsResolving()
+    {
+        var resource = $"resource-{Guid.NewGuid():N}";
+        var scope = TestEntities.CreateScope();
+        scope.Resources = TestEntities.JsonArray(resource);
+        await _store.CreateAsync(scope, CancellationToken.None);
+
+        await _store.SetResourcesAsync(scope, ImmutableArray<string>.Empty, CancellationToken.None);
+        await _store.UpdateAsync(scope, CancellationToken.None);
+
+        var byResource = await _store.FindByResourceAsync(resource, CancellationToken.None).ToListAsync();
+        Assert.Empty(byResource);
     }
 
     private async Task<OpenIddictDynamoDbScopeStore<OpenIddictDynamoDbScope>> CreateEmptyStoreAsync()
