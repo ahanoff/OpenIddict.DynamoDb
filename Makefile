@@ -10,7 +10,7 @@ build:
 test:
 	dotnet test
 
-pack:
+pack: clean
 	dotnet pack src/OpenIddict.DynamoDb/OpenIddict.DynamoDb.csproj -c Release -p:Version=$(VERSION) -o dist
 
 publish: pack
