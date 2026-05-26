@@ -4,7 +4,7 @@
         <PackageId>ahanoff.OpenIddict.DynamoDb</PackageId>
         <Version>0.1.0-beta1</Version>
         <Title>ahanoff.OpenIddict.DynamoDb</Title>
-        <Description>DynamoDB stores for OpenIddict, designed around DynamoDB access patterns.</Description>
+        <Description>DynamoDB stores for OpenIddict.</Description>
         <Authors>Akhan Zhakiyanov</Authors>
         <Company>ahanoff</Company>
         <Copyright>Copyright © 2024 Akhan Zhakiyanov. All rights reserved.</Copyright>
