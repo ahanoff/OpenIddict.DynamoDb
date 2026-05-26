@@ -80,7 +80,7 @@ public sealed class DynamoDbFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        Client.Dispose();
+        Client?.Dispose();
 
         if (_container is not null)
         {
