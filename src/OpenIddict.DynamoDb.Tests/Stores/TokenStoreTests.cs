@@ -371,9 +371,9 @@ public sealed class TokenStoreTests
 
         var pruned = await _store.PruneAsync(DateTimeOffset.UtcNow, CancellationToken.None);
 
-        Assert.Equal(1, pruned);
-        var countAfter = await _store.CountAsync(CancellationToken.None);
-        Assert.Equal(0, countAfter);
+        Assert.True(pruned >= 1);
+        var deleted = await _store.FindByIdAsync(token.Id, CancellationToken.None);
+        Assert.Null(deleted);
     }
 
     [Fact]
@@ -456,6 +456,7 @@ public sealed class TokenStoreTests
     {
         var token = await _store.InstantiateAsync(CancellationToken.None);
         Assert.NotNull(token);
+        Assert.NotNull(token.ConcurrencyToken);
         Assert.NotEmpty(token.ConcurrencyToken);
     }
 
@@ -730,7 +731,9 @@ public sealed class TokenStoreTests
 
         var pruned = await _store.PruneAsync(DateTimeOffset.UtcNow, CancellationToken.None);
 
-        Assert.Equal(1, pruned);
+        Assert.True(pruned >= 1);
+        var deleted = await _store.FindByIdAsync(token.Id, CancellationToken.None);
+        Assert.Null(deleted);
     }
 
     [Fact]

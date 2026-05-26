@@ -345,7 +345,7 @@ public sealed class ApplicationStoreTests
     {
         var application = await CreateAndReloadApplicationAsync();
         var result = await _store.GetRequirementsAsync(application, CancellationToken.None);
-        Assert.Equal(ImmutableArray.Create("pkce"), result);
+        Assert.True(ImmutableArray.Create("pkce").SequenceEqual(result));
     }
 
     [Fact]
@@ -433,7 +433,7 @@ public sealed class ApplicationStoreTests
         var stored = await SetAndReloadApplicationAsync((application, token) => _store.SetPermissionsAsync(application, permissions, token));
 
         var result = await _store.GetPermissionsAsync(stored, CancellationToken.None);
-        Assert.Equal(permissions, result);
+        Assert.True(permissions.SequenceEqual(result));
     }
 
     [Fact]
@@ -444,7 +444,7 @@ public sealed class ApplicationStoreTests
         var stored = await SetAndReloadApplicationAsync((application, token) => _store.SetPostLogoutRedirectUrisAsync(application, uris, token));
 
         var result = await _store.GetPostLogoutRedirectUrisAsync(stored, CancellationToken.None);
-        Assert.Equal(uris, result);
+        Assert.True(uris.SequenceEqual(result));
         var applications = await _store.FindByPostLogoutRedirectUriAsync(uri, CancellationToken.None).ToListAsync();
         Assert.Single(applications);
         Assert.Equal(stored.Id, applications[0].Id);
@@ -469,7 +469,7 @@ public sealed class ApplicationStoreTests
         var stored = await SetAndReloadApplicationAsync((application, token) => _store.SetRedirectUrisAsync(application, uris, token));
 
         var result = await _store.GetRedirectUrisAsync(stored, CancellationToken.None);
-        Assert.Equal(uris, result);
+        Assert.True(uris.SequenceEqual(result));
         var applications = await _store.FindByRedirectUriAsync(uri, CancellationToken.None).ToListAsync();
         Assert.Single(applications);
         Assert.Equal(stored.Id, applications[0].Id);
@@ -482,7 +482,7 @@ public sealed class ApplicationStoreTests
         var stored = await SetAndReloadApplicationAsync((application, token) => _store.SetRequirementsAsync(application, requirements, token));
 
         var result = await _store.GetRequirementsAsync(stored, CancellationToken.None);
-        Assert.Equal(requirements, result);
+        Assert.True(requirements.SequenceEqual(result));
     }
 
     [Fact]

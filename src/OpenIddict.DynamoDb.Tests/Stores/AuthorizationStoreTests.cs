@@ -401,7 +401,7 @@ public sealed class AuthorizationStoreTests
         var stored = await _store.FindByIdAsync(authorization.Id, CancellationToken.None);
         Assert.NotNull(stored);
         var result = await _store.GetScopesAsync(stored, CancellationToken.None);
-        Assert.Equal(newScopes, result);
+        Assert.True(newScopes.SequenceEqual(result));
     }
 
     [Fact]

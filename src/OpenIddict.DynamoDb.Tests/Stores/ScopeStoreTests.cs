@@ -386,7 +386,7 @@ public sealed class ScopeStoreTests
         var stored = await _store.FindByIdAsync(scope.Id, CancellationToken.None);
         Assert.NotNull(stored);
         var result = await _store.GetResourcesAsync(stored, CancellationToken.None);
-        Assert.Equal(newResources, result);
+        Assert.True(newResources.SequenceEqual(result));
     }
 
     [Fact]
