@@ -454,7 +454,7 @@ public sealed class ApplicationStoreTests
     public async Task SetPropertiesAsync_UpdatesProperties()
     {
         using var doc = JsonDocument.Parse("{\"NewProp\":\"NewVal\"}");
-        var properties = ImmutableDictionary.CreateRange(new[] { KeyValuePair.Create("NewProp", doc.RootElement) });
+        var properties = ImmutableDictionary.CreateRange(new[] { KeyValuePair.Create("NewProp", doc.RootElement.GetProperty("NewProp")) });
         var stored = await SetAndReloadApplicationAsync((application, token) => _store.SetPropertiesAsync(application, properties, token));
 
         var result = await _store.GetPropertiesAsync(stored, CancellationToken.None);
