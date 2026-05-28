@@ -1,0 +1,42 @@
+name: Publish IaC packages
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - package: cdk
+            working-directory: iac/cdk
+          - package: pulumi
+            working-directory: iac/pulumi
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.working-directory }}/package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      - name: Install and build
+        run: npm ci && npm run build
+        working-directory: ${{ matrix.working-directory }}
+
+      - name: Publish
+        run: |
+          TAG="${{ github.event.release.prerelease && 'next' || 'latest' }}"
+          npm publish --access public --provenance --tag "$TAG"
+        working-directory: ${{ matrix.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
