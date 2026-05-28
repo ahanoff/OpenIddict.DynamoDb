@@ -397,3 +397,12 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 .idea
+
+# IaC
+iac/cdk/lib/
+iac/cdk/node_modules/
+iac/pulumi/bin/
+iac/pulumi/node_modules/
+iac/**/.terraform/
+iac/**/*.tfstate*
+dist/
