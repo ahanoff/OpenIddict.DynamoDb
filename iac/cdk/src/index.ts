@@ -1,4 +1,4 @@
-import { AttributeType, BillingMode, ProjectionType, Table, type TableProps } from "aws-cdk-lib/aws-dynamodb";
+import { AttributeType, BillingMode, ProjectionType, Table, TableEncryption, type TableProps } from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 
 type TableConfig = Omit<TableProps, "partitionKey" | "sortKey">;
@@ -9,6 +9,8 @@ export interface OpenIddictDynamoDbProps {
   readonly authorizationsTableProps?: TableConfig;
   readonly scopesTableProps?: TableConfig;
   readonly tokensTableProps?: TableConfig;
+  readonly globalSecondaryIndexReadCapacity?: number;
+  readonly globalSecondaryIndexWriteCapacity?: number;
 }
 
 export class OpenIddictDynamoDb extends Construct {
@@ -22,8 +24,24 @@ export class OpenIddictDynamoDb extends Construct {
 
     const base: TableConfig = {
       billingMode: BillingMode.PAY_PER_REQUEST,
+      deletionProtection: true,
+      encryption: TableEncryption.AWS_MANAGED,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       ...props?.tableProps,
     };
+    const sharedBillingMode = props?.tableProps?.billingMode ?? BillingMode.PAY_PER_REQUEST;
+    const authorizationBillingMode = props?.authorizationsTableProps?.billingMode ?? sharedBillingMode;
+    const tokenBillingMode = props?.tokensTableProps?.billingMode ?? sharedBillingMode;
+    const indexCapacity = (billingMode: BillingMode) => billingMode === BillingMode.PROVISIONED
+      ? {
+          ...(props?.globalSecondaryIndexReadCapacity === undefined
+            ? {}
+            : { readCapacity: props.globalSecondaryIndexReadCapacity }),
+          ...(props?.globalSecondaryIndexWriteCapacity === undefined
+            ? {}
+            : { writeCapacity: props.globalSecondaryIndexWriteCapacity }),
+        }
+      : {};
 
     this.applicationsTable = new Table(this, "Applications", {
       tableName: "OpenIddictApplications",
@@ -53,20 +71,23 @@ export class OpenIddictDynamoDb extends Construct {
       indexName: "SubjectIndex",
       partitionKey: { name: "gsi1_pk", type: AttributeType.STRING },
       sortKey: { name: "gsi1_sk", type: AttributeType.STRING },
-      projectionType: ProjectionType.ALL,
+      projectionType: ProjectionType.KEYS_ONLY,
+      ...indexCapacity(authorizationBillingMode),
     });
 
     this.authorizationsTable.addGlobalSecondaryIndex({
       indexName: "ApplicationIndex",
       partitionKey: { name: "gsi2_pk", type: AttributeType.STRING },
       sortKey: { name: "gsi2_sk", type: AttributeType.STRING },
-      projectionType: ProjectionType.ALL,
+      projectionType: ProjectionType.KEYS_ONLY,
+      ...indexCapacity(authorizationBillingMode),
     });
 
     this.tokensTable = new Table(this, "Tokens", {
       tableName: "OpenIddictTokens",
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
+      timeToLiveAttribute: "ttl",
       ...base,
       ...props?.tokensTableProps,
     });
@@ -75,28 +96,32 @@ export class OpenIddictDynamoDb extends Construct {
       indexName: "SubjectAppIndex",
       partitionKey: { name: "gsi1_pk", type: AttributeType.STRING },
       sortKey: { name: "gsi1_sk", type: AttributeType.STRING },
-      projectionType: ProjectionType.ALL,
+      projectionType: ProjectionType.KEYS_ONLY,
+      ...indexCapacity(tokenBillingMode),
     });
 
     this.tokensTable.addGlobalSecondaryIndex({
       indexName: "SubjectIndex",
       partitionKey: { name: "gsi2_pk", type: AttributeType.STRING },
       sortKey: { name: "gsi2_sk", type: AttributeType.STRING },
-      projectionType: ProjectionType.ALL,
+      projectionType: ProjectionType.KEYS_ONLY,
+      ...indexCapacity(tokenBillingMode),
     });
 
     this.tokensTable.addGlobalSecondaryIndex({
       indexName: "ApplicationShardedIndex",
       partitionKey: { name: "gsi3_pk", type: AttributeType.STRING },
       sortKey: { name: "gsi3_sk", type: AttributeType.STRING },
-      projectionType: ProjectionType.ALL,
+      projectionType: ProjectionType.KEYS_ONLY,
+      ...indexCapacity(tokenBillingMode),
     });
 
     this.tokensTable.addGlobalSecondaryIndex({
       indexName: "AuthorizationIndex",
       partitionKey: { name: "gsi4_pk", type: AttributeType.STRING },
       sortKey: { name: "gsi4_sk", type: AttributeType.STRING },
-      projectionType: ProjectionType.ALL,
+      projectionType: ProjectionType.KEYS_ONLY,
+      ...indexCapacity(tokenBillingMode),
     });
   }
 }

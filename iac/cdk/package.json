@@ -28,6 +28,7 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test": "node test/defaults.test.mjs"
   }
 }

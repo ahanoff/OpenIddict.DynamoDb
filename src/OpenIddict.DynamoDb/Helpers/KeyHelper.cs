@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Buffers.Binary;
 
 namespace OpenIddict.DynamoDb.Helpers;
 
@@ -14,7 +15,7 @@ public static class KeyHelper
     // --- Applications ---
     public static string ApplicationPk(string id) => $"APP#{id}";
     public static string ApplicationSk => "#META";
-    public static string ClientIdPk(string clientId) => $"CLIENTID#{clientId}";
+    public static string ClientIdPk(string clientId) => $"CLIENTID#{Sha256(clientId)}";
     public static string ClientIdSk => "#LOOKUP";
     public static string RedirectPk(string uri) => $"REDIRECT#{Sha256(uri)}";
     public static string RedirectSk(string appId) => $"APP#{appId}";
@@ -24,44 +25,53 @@ public static class KeyHelper
     // --- Scopes ---
     public static string ScopePk(string id) => $"SCOPE#{id}";
     public static string ScopeSk => "#META";
-    public static string ScopeNamePk(string name) => $"NAME#{name}";
+    public static string ScopeNamePk(string name) => $"NAME#{Sha256(name)}";
     public static string ScopeNameSk => "#LOOKUP";
-    public static string ScopeResourcePk(string resource) => $"RESOURCE#{resource}";
+    public static string ScopeResourcePk(string resource) => $"RESOURCE#{Sha256(resource)}";
     public static string ScopeResourceSk(string scopeId) => $"SCOPE#{scopeId}";
 
     // --- Authorizations ---
     public static string AuthorizationPk(string id) => $"AUTHZ#{id}";
     public static string AuthorizationSk => "#META";
     // GSI1: Subject index
-    public static string AuthorizationSubjectIndexPk(string subject) => $"SUBJ#{subject}";
-    public static string AuthorizationSubjectIndexSk(string appId, string authzId) => $"APP#{appId}#AUTHZ#{authzId}";
+    public static string AuthorizationSubjectIndexPk(string subject) => $"SUBJ#{Sha256(subject)}";
+    public static string AuthorizationSubjectIndexSk(string appId, string authzId) => $"APP#{Sha256(appId)}#AUTHZ#{authzId}";
     // GSI2: Application index
-    public static string AuthorizationApplicationIndexPk(string appId) => $"APP#{appId}";
+    public static string AuthorizationApplicationIndexPk(string appId) => $"APP#{Sha256(appId)}";
     public static string AuthorizationApplicationIndexSk(string authzId) => $"AUTHZ#{authzId}";
 
     // --- Tokens ---
     public static string TokenPk(string id) => $"TOKEN#{id}";
     public static string TokenSk => "#META";
-    public static string ReferenceIdPk(string referenceId) => $"REF#{referenceId}";
+    public static string ReferenceIdPk(string referenceId) => $"REF#{Sha256(referenceId)}";
     public static string ReferenceIdSk => "#LOOKUP";
     // GSI1: Subject+Application index with composite SK
-    public static string TokenSubjectAppIndexPk(string subject, string appId) => $"SUBJAPP#{subject}#{appId}";
+    public static string TokenSubjectAppIndexPk(string subject, string appId) => $"SUBJAPP#{Sha256(subject)}#{Sha256(appId)}";
     public static string TokenSubjectAppIndexSk(string? status, string? type, string tokenId) =>
         $"STATUS#{status ?? NullSentinel}#TYPE#{type ?? NullSentinel}#TOKEN#{tokenId}";
     // GSI2: Subject index
-    public static string TokenSubjectIndexPk(string subject) => $"SUBJ#{subject}";
+    public static string TokenSubjectIndexPk(string subject) => $"SUBJ#{Sha256(subject)}";
     public static string TokenSubjectIndexSk(string tokenId) => $"TOKEN#{tokenId}";
     // GSI3: Application sharded index
     public static string TokenApplicationShardedIndexPk(string appId, string tokenId, int shardCount = 10)
     {
-        var shard = Math.Abs(tokenId.GetHashCode()) % shardCount;
-        return $"APP#{appId}#S#{shard}";
+        ArgumentOutOfRangeException.ThrowIfLessThan(shardCount, 1);
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(tokenId));
+        var shard = BinaryPrimitives.ReadUInt32BigEndian(hash) % (uint)shardCount;
+        return TokenApplicationShardIndexPk(appId, (int)shard);
+    }
+    public static string TokenApplicationShardIndexPk(string appId, int shard)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(shard);
+        return $"APP#{Sha256(appId)}#S#{shard}";
     }
     public static string TokenApplicationShardedIndexSk(string? status, string? type, string tokenId) =>
         $"STATUS#{status ?? NullSentinel}#TYPE#{type ?? NullSentinel}#TOKEN#{tokenId}";
     // GSI4: Authorization index
-    public static string TokenAuthorizationIndexPk(string authorizationId) => $"AUTHZ#{authorizationId}";
+    public static string TokenAuthorizationIndexPk(string authorizationId) => $"AUTHZ#{Sha256(authorizationId)}";
     public static string TokenAuthorizationIndexSk(string tokenId) => $"TOKEN#{tokenId}";
+    public static string AuthorizationTokenCountPk(string authorizationId) => $"AUTHZTOKENCOUNT#{Sha256(authorizationId)}";
+    public static string AuthorizationTokenCountSk => "#COUNT";
 
     // --- Utility ---
     public static string Sha256(string input)

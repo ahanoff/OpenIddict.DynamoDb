@@ -81,7 +81,7 @@ public static class TestEntities
         {
             Id = value,
             ApplicationId = applicationId ?? NewId("app"),
-            AuthorizationId = authorizationId ?? NewId("authz"),
+            AuthorizationId = authorizationId,
             Subject = subject ?? $"subject-{value}",
             ReferenceId = referenceId ?? $"reference-{value}",
             Type = OpenIddictConstants.TokenTypeHints.AccessToken,
@@ -97,4 +97,24 @@ public static class TestEntities
     public static string NewId(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 
     public static string JsonArray(params string[] values) => JsonSerializer.Serialize(values);
+}
+
+public sealed class CustomApplication : OpenIddictDynamoDbApplication
+{
+    public string? TenantId { get; set; }
+}
+
+public sealed class CustomAuthorization : OpenIddictDynamoDbAuthorization
+{
+    public string? TenantId { get; set; }
+}
+
+public sealed class CustomScope : OpenIddictDynamoDbScope
+{
+    public string? TenantId { get; set; }
+}
+
+public sealed class CustomToken : OpenIddictDynamoDbToken
+{
+    public string? TenantId { get; set; }
 }

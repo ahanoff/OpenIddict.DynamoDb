@@ -10,6 +10,10 @@ public class OpenIddictDynamoDbTableCreator
         OpenIddictDynamoDbOptions options,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate();
+
         await CreateApplicationsTableAsync(client, options, cancellationToken);
         await CreateScopesTableAsync(client, options, cancellationToken);
         await CreateAuthorizationsTableAsync(client, options, cancellationToken);
@@ -93,15 +97,7 @@ public class OpenIddictDynamoDbTableCreator
             ]
         }, cancellationToken);
 
-        await client.UpdateTimeToLiveAsync(new UpdateTimeToLiveRequest
-        {
-            TableName = options.TokensTableName,
-            TimeToLiveSpecification = new TimeToLiveSpecification
-            {
-                AttributeName = "ttl",
-                Enabled = true
-            }
-        }, cancellationToken);
+        await EnableTimeToLiveAsync(client, options.TokensTableName, cancellationToken);
     }
 
     private static async Task CreateTableIfNotExistsAsync(
@@ -138,9 +134,51 @@ public class OpenIddictDynamoDbTableCreator
             KeySchema = CreateKeySchema(hashKey, rangeKey),
             Projection = new Projection
             {
-                ProjectionType = ProjectionType.ALL
+                ProjectionType = ProjectionType.KEYS_ONLY
             }
         };
+
+    private static async Task EnableTimeToLiveAsync(
+        IAmazonDynamoDB client,
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var response = await client.DescribeTimeToLiveAsync(new DescribeTimeToLiveRequest
+            {
+                TableName = tableName
+            }, cancellationToken);
+            var description = response.TimeToLiveDescription;
+            if (description.TimeToLiveStatus == TimeToLiveStatus.ENABLED ||
+                description.TimeToLiveStatus == TimeToLiveStatus.ENABLING)
+            {
+                if (!string.Equals(description.AttributeName, "ttl", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"Table '{tableName}' has TTL configured on '{description.AttributeName}' instead of 'ttl'.");
+                }
+
+                return;
+            }
+
+            if (description.TimeToLiveStatus == TimeToLiveStatus.DISABLING)
+            {
+                await Task.Delay(1000, cancellationToken);
+                continue;
+            }
+
+            await client.UpdateTimeToLiveAsync(new UpdateTimeToLiveRequest
+            {
+                TableName = tableName,
+                TimeToLiveSpecification = new TimeToLiveSpecification
+                {
+                    AttributeName = "ttl",
+                    Enabled = true
+                }
+            }, cancellationToken);
+            return;
+        }
+    }
 
     private static async Task WaitForTableActiveAsync(
         IAmazonDynamoDB client, string tableName, CancellationToken cancellationToken)

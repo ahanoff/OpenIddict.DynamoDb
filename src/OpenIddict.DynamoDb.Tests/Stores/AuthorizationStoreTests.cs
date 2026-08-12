@@ -3,6 +3,7 @@ using OpenIddict.Abstractions;
 using OpenIddict.DynamoDb.Models;
 using OpenIddict.DynamoDb.Tests.Fixtures;
 using OpenIddict.DynamoDb.Tests.Helpers;
+using OpenIddict.DynamoDb.Helpers;
 using System.Collections.Immutable;
 using System.Text.Json;
 
@@ -12,10 +13,12 @@ namespace OpenIddict.DynamoDb.Tests.Stores;
 public sealed class AuthorizationStoreTests
 {
     private readonly OpenIddictDynamoDbAuthorizationStore<OpenIddictDynamoDbAuthorization> _store;
+    private readonly DynamoDbFixture _fixture;
 
     public AuthorizationStoreTests(DynamoDbFixture fixture)
     {
         _store = new OpenIddictDynamoDbAuthorizationStore<OpenIddictDynamoDbAuthorization>(fixture.Client, fixture.Options);
+        _fixture = fixture;
     }
 
     [Fact]
@@ -31,6 +34,22 @@ public sealed class AuthorizationStoreTests
         Assert.Equal(authorization.Subject, stored.Subject);
         Assert.Equal(authorization.ApplicationId, stored.ApplicationId);
         Assert.Equal(authorization.Scopes, stored.Scopes);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DuplicateId_ThrowsConcurrencyException()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        await _store.CreateAsync(authorization, CancellationToken.None);
+        var duplicate = TestEntities.CreateAuthorization(id: authorization.Id);
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
+            () => _store.CreateAsync(duplicate, CancellationToken.None).AsTask());
+
+        Assert.IsType<TransactionCanceledException>(exception.InnerException);
+        var stored = await _store.FindByIdAsync(authorization.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(authorization.ConcurrencyToken, stored.ConcurrencyToken);
     }
 
     [Fact]
@@ -96,6 +115,48 @@ public sealed class AuthorizationStoreTests
     }
 
     [Fact]
+    public async Task DeleteAsync_LinkedToken_PreventsOrphan()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        await _store.CreateAsync(authorization, CancellationToken.None);
+        var tokenStore = new OpenIddictDynamoDbTokenStore<OpenIddictDynamoDbToken>(_fixture.Client, _fixture.Options);
+        var token = TestEntities.CreateToken(authorizationId: authorization.Id);
+        await tokenStore.CreateAsync(token, CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
+            () => _store.DeleteAsync(authorization, CancellationToken.None).AsTask());
+
+        Assert.IsType<TransactionCanceledException>(exception.InnerException);
+        Assert.NotNull(await _store.FindByIdAsync(authorization.Id, CancellationToken.None));
+
+        await tokenStore.DeleteAsync(token, CancellationToken.None);
+        await _store.DeleteAsync(authorization, CancellationToken.None);
+        Assert.Null(await _store.FindByIdAsync(authorization.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteAsync_MissingCounter_FailsClosed()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        await _store.CreateAsync(authorization, CancellationToken.None);
+        await _fixture.Client.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountPk(authorization.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountSk)
+            }
+        });
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
+            () => _store.DeleteAsync(authorization, CancellationToken.None).AsTask());
+
+        Assert.IsType<TransactionCanceledException>(exception.InnerException);
+        Assert.NotNull(await _store.FindByIdAsync(authorization.Id, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task RevokeAsync_RevokesMatchingAuthorization()
     {
         var authorization = TestEntities.CreateAuthorization();
@@ -122,6 +183,102 @@ public sealed class AuthorizationStoreTests
         Assert.Equal(1, count);
         Assert.NotNull(stored);
         Assert.Equal(OpenIddictConstants.Statuses.Revoked, stored.Status);
+    }
+
+    [Fact]
+    public async Task RevokeByApplicationIdAsync_AuthorizationHiddenFromGsi_IsStillRevokedOnRead()
+    {
+        var applicationId = TestEntities.NewId("app");
+        var authorization = TestEntities.CreateAuthorization(applicationId: applicationId);
+        await _store.CreateAsync(authorization, CancellationToken.None);
+        await _fixture.Client.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _fixture.Options.AuthorizationsTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationPk(authorization.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationSk)
+            },
+            UpdateExpression = "REMOVE gsi2_pk, gsi2_sk"
+        });
+
+        await _store.RevokeByApplicationIdAsync(applicationId, CancellationToken.None);
+        var stored = await _store.FindByIdAsync(authorization.Id, CancellationToken.None);
+        var enumerated = await _store.FindBySubjectAsync(authorization.Subject!, CancellationToken.None)
+            .SingleAsync(item => item.Id == authorization.Id);
+
+        Assert.NotNull(stored);
+        Assert.Equal(OpenIddictConstants.Statuses.Revoked, stored.Status);
+        Assert.Equal(OpenIddictConstants.Statuses.Revoked, enumerated.Status);
+    }
+
+    [Fact]
+    public async Task RevokeByApplicationIdAsync_DoesNotRegressNewerMarker()
+    {
+        var applicationId = TestEntities.NewId("app");
+        var cutoff = DateTimeOffset.UtcNow.AddMinutes(5);
+        var marker = RevocationMarkerHelper.CreateItem(
+            "AUTHORIZATION", null, applicationId, null, null, null, cutoff);
+        await _fixture.Client.PutItemAsync(new PutItemRequest
+        {
+            TableName = _fixture.Options.AuthorizationsTableName,
+            Item = marker
+        });
+
+        await _store.RevokeByApplicationIdAsync(applicationId, CancellationToken.None);
+
+        var response = await _fixture.Client.GetItemAsync(new GetItemRequest
+        {
+            TableName = _fixture.Options.AuthorizationsTableName,
+            Key = RevocationMarkerHelper.CreateKey("AUTHORIZATION", null, applicationId, null, null, null),
+            ConsistentRead = true
+        });
+        Assert.Equal(cutoff.ToUnixTimeMilliseconds(), DynamoDbHelper.GetLong(response.Item, "revoked_at"));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FilterChangeCannotClearRevocationMarker()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        await _store.CreateAsync(authorization, CancellationToken.None);
+        await RevocationMarkerHelper.WriteAsync(
+            _fixture.Client, _fixture.Options.AuthorizationsTableName, "AUTHORIZATION",
+            authorization.Subject, authorization.ApplicationId, null, authorization.Status, authorization.Type,
+            DateTimeOffset.UtcNow.AddSeconds(1), CancellationToken.None);
+        authorization.Status = OpenIddictConstants.Statuses.Inactive;
+        authorization.Type = OpenIddictConstants.AuthorizationTypes.AdHoc;
+
+        await _store.UpdateAsync(authorization, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(authorization.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(OpenIddictConstants.Statuses.Revoked, stored.Status);
+        Assert.Equal(OpenIddictConstants.AuthorizationTypes.AdHoc, stored.Type);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ConcurrentFilteredRevocation_FailsClosed()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        await _store.CreateAsync(authorization, CancellationToken.None);
+        using var client = new RevocationRaceClient(_fixture.Client, cancellationToken =>
+            RevocationMarkerHelper.WriteAsync(
+                _fixture.Client, _fixture.Options.AuthorizationsTableName, "AUTHORIZATION",
+                authorization.Subject, authorization.ApplicationId, null, OpenIddictConstants.Statuses.Valid,
+                OpenIddictConstants.AuthorizationTypes.Permanent,
+                DateTimeOffset.UtcNow.AddSeconds(1), cancellationToken));
+        var store = new OpenIddictDynamoDbAuthorizationStore<OpenIddictDynamoDbAuthorization>(client, _fixture.Options);
+        authorization.Status = OpenIddictConstants.Statuses.Inactive;
+        authorization.Type = OpenIddictConstants.AuthorizationTypes.AdHoc;
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
+            () => store.UpdateAsync(authorization, CancellationToken.None).AsTask());
+
+        Assert.IsType<TransactionCanceledException>(exception.InnerException);
+        var stored = await _store.FindByIdAsync(authorization.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(OpenIddictConstants.Statuses.Revoked, stored.Status);
+        Assert.Equal(OpenIddictConstants.AuthorizationTypes.Permanent, stored.Type);
     }
 
     [Fact]
@@ -178,7 +335,7 @@ public sealed class AuthorizationStoreTests
         var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
             () => _store.UpdateAsync(authorization, CancellationToken.None).AsTask());
 
-        Assert.IsType<ConditionalCheckFailedException>(exception.InnerException);
+        Assert.IsType<TransactionCanceledException>(exception.InnerException);
     }
 
     [Fact]
@@ -196,7 +353,7 @@ public sealed class AuthorizationStoreTests
         var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
             () => _store.DeleteAsync(authorization, CancellationToken.None).AsTask());
 
-        Assert.IsType<ConditionalCheckFailedException>(exception.InnerException);
+        Assert.IsType<TransactionCanceledException>(exception.InnerException);
     }
 
     [Fact]
@@ -463,6 +620,76 @@ public sealed class AuthorizationStoreTests
     }
 
     [Fact]
+    public async Task PruneAsync_AuthorizationWithTokenHiddenFromGsi_IsPreserved()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        authorization.Status = OpenIddictConstants.Statuses.Inactive;
+        authorization.CreationDate = DateTimeOffset.UtcNow.AddDays(-30);
+        await _store.CreateAsync(authorization, CancellationToken.None);
+        var tokenStore = new OpenIddictDynamoDbTokenStore<OpenIddictDynamoDbToken>(_fixture.Client, _fixture.Options);
+        var token = TestEntities.CreateToken(authorizationId: authorization.Id);
+        await tokenStore.CreateAsync(token, CancellationToken.None);
+        await _fixture.Client.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenPk(token.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenSk)
+            },
+            UpdateExpression = "REMOVE gsi4_pk, gsi4_sk"
+        });
+
+        await _store.PruneAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.NotNull(await _store.FindByIdAsync(authorization.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task PruneAsync_MissingCounter_PreservesAuthorization()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        authorization.Status = OpenIddictConstants.Statuses.Inactive;
+        authorization.CreationDate = DateTimeOffset.UtcNow.AddDays(-30);
+        await _store.CreateAsync(authorization, CancellationToken.None);
+        await _fixture.Client.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountPk(authorization.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountSk)
+            }
+        });
+
+        var pruned = await _store.PruneAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.Equal(0, pruned);
+        Assert.NotNull(await _store.FindByIdAsync(authorization.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CustomAuthorizationProperties_RoundTrip()
+    {
+        var store = new OpenIddictDynamoDbAuthorizationStore<CustomAuthorization>(_fixture.Client, _fixture.Options);
+        var authorization = new CustomAuthorization
+        {
+            Id = TestEntities.NewId("authorization"),
+            Status = OpenIddictConstants.Statuses.Valid,
+            Type = OpenIddictConstants.AuthorizationTypes.Permanent,
+            CreationDate = DateTimeOffset.UtcNow,
+            ConcurrencyToken = Guid.NewGuid().ToString(),
+            TenantId = "tenant-42"
+        };
+
+        await store.CreateAsync(authorization, CancellationToken.None);
+        var stored = await store.FindByIdAsync(authorization.Id, CancellationToken.None);
+
+        Assert.NotNull(stored);
+        Assert.Equal("tenant-42", stored.TenantId);
+    }
+
+    [Fact]
     public async Task CountAsync_IncludesCreatedAuthorizations()
     {
         var before = await _store.CountAsync(CancellationToken.None);
@@ -489,24 +716,14 @@ public sealed class AuthorizationStoreTests
     }
 
     [Fact]
-    public async Task CountAsync_WithIQueryable_ThrowsNotSupportedException()
+    public async Task IQueryableOverloads_ExecuteAgainstMaterializedResults()
     {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.CountAsync<OpenIddictDynamoDbAuthorization>(q => q, CancellationToken.None).AsTask());
-    }
+        var authorization = TestEntities.CreateAuthorization();
+        await _store.CreateAsync(authorization, CancellationToken.None);
 
-    [Fact]
-    public async Task GetAsync_ThrowsNotSupportedException()
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.GetAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).AsTask());
-    }
-
-    [Fact]
-    public async Task ListAsync_WithIQueryable_ThrowsNotSupportedException()
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.ListAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).ToListAsync());
+        Assert.True(await _store.CountAsync(q => q.Where(item => item.Id == authorization.Id), CancellationToken.None) >= 1);
+        Assert.Equal(authorization.Id, await _store.GetAsync((q, id) => q.Where(item => item.Id == id).Select(item => item.Id), authorization.Id, CancellationToken.None));
+        Assert.Equal([authorization.Id], await _store.ListAsync((q, id) => q.Where(item => item.Id == id).Select(item => item.Id), authorization.Id, CancellationToken.None).ToListAsync());
     }
 
 }

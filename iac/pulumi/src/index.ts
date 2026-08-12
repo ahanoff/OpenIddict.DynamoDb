@@ -4,12 +4,14 @@ import * as pulumi from "@pulumi/pulumi";
 type TableArgs = Omit<aws.dynamodb.TableArgs, "hashKey" | "rangeKey" | "attributes" | "globalSecondaryIndexes" | "ttl" | "tags">;
 
 export interface OpenIddictDynamoDbArgs {
-  tags?: Record<string, string>;
-  tableArgs?: TableArgs;
-  applicationsTableArgs?: TableArgs;
-  authorizationsTableArgs?: TableArgs;
-  scopesTableArgs?: TableArgs;
-  tokensTableArgs?: TableArgs;
+  readonly tags?: Readonly<Record<string, string>>;
+  readonly tableArgs?: TableArgs;
+  readonly applicationsTableArgs?: TableArgs;
+  readonly authorizationsTableArgs?: TableArgs;
+  readonly scopesTableArgs?: TableArgs;
+  readonly tokensTableArgs?: TableArgs;
+  readonly globalSecondaryIndexReadCapacity?: pulumi.Input<number>;
+  readonly globalSecondaryIndexWriteCapacity?: pulumi.Input<number>;
 }
 
 export class OpenIddictDynamoDb extends pulumi.ComponentResource {
@@ -27,7 +29,32 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
 
     const defaultOpts = { parent: this };
     const tags = args?.tags ?? {};
-    const base = { billingMode: "PAY_PER_REQUEST" as const, ...args?.tableArgs };
+    const base = {
+      billingMode: "PAY_PER_REQUEST" as const,
+      deletionProtectionEnabled: true,
+      pointInTimeRecovery: { enabled: true },
+      serverSideEncryption: { enabled: true },
+      ...args?.tableArgs,
+    };
+    const sharedBillingMode = args?.tableArgs?.billingMode ?? "PAY_PER_REQUEST";
+    const authorizationBillingMode = args?.authorizationsTableArgs?.billingMode ?? sharedBillingMode;
+    const tokenBillingMode = args?.tokensTableArgs?.billingMode ?? sharedBillingMode;
+    const createGlobalSecondaryIndexes = (
+      billingMode: pulumi.Input<string | undefined>,
+      indexes: ReadonlyArray<{
+        readonly name: string;
+        readonly hashKey: string;
+        readonly rangeKey: string;
+        readonly projectionType: string;
+      }>,
+    ) => pulumi.all([
+      billingMode,
+      args?.globalSecondaryIndexReadCapacity ?? 5,
+      args?.globalSecondaryIndexWriteCapacity ?? 5,
+    ]).apply(([mode, readCapacity, writeCapacity]) => indexes.map(index => ({
+      ...index,
+      ...(mode === "PROVISIONED" ? { readCapacity, writeCapacity } : {}),
+    })));
 
     this.applicationsTable = new aws.dynamodb.Table(
       `${name}-applications`,
@@ -77,20 +104,20 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
           { name: "gsi2_pk", type: "S" },
           { name: "gsi2_sk", type: "S" },
         ],
-        globalSecondaryIndexes: [
+        globalSecondaryIndexes: createGlobalSecondaryIndexes(authorizationBillingMode, [
           {
             name: "SubjectIndex",
             hashKey: "gsi1_pk",
             rangeKey: "gsi1_sk",
-            projectionType: "ALL",
+            projectionType: "KEYS_ONLY",
           },
           {
             name: "ApplicationIndex",
             hashKey: "gsi2_pk",
             rangeKey: "gsi2_sk",
-            projectionType: "ALL",
+            projectionType: "KEYS_ONLY",
           },
-        ],
+        ]),
         ...base,
         ...args?.authorizationsTableArgs,
         tags,
@@ -116,32 +143,32 @@ export class OpenIddictDynamoDb extends pulumi.ComponentResource {
           { name: "gsi4_pk", type: "S" },
           { name: "gsi4_sk", type: "S" },
         ],
-        globalSecondaryIndexes: [
+        globalSecondaryIndexes: createGlobalSecondaryIndexes(tokenBillingMode, [
           {
             name: "SubjectAppIndex",
             hashKey: "gsi1_pk",
             rangeKey: "gsi1_sk",
-            projectionType: "ALL",
+            projectionType: "KEYS_ONLY",
           },
           {
             name: "SubjectIndex",
             hashKey: "gsi2_pk",
             rangeKey: "gsi2_sk",
-            projectionType: "ALL",
+            projectionType: "KEYS_ONLY",
           },
           {
             name: "ApplicationShardedIndex",
             hashKey: "gsi3_pk",
             rangeKey: "gsi3_sk",
-            projectionType: "ALL",
+            projectionType: "KEYS_ONLY",
           },
           {
             name: "AuthorizationIndex",
             hashKey: "gsi4_pk",
             rangeKey: "gsi4_sk",
-            projectionType: "ALL",
+            projectionType: "KEYS_ONLY",
           },
-        ],
+        ]),
         ttl: {
           attributeName: "ttl",
           enabled: true,

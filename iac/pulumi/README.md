@@ -12,7 +12,7 @@ npm install @ahanoff/openiddict-dynamodb-pulumi
 
 ### Default settings
 
-All tables use on-demand billing:
+All tables use on-demand billing, point-in-time recovery, server-side encryption, and deletion protection:
 
 ```ts
 import { OpenIddictDynamoDb } from "@ahanoff/openiddict-dynamodb-pulumi";
@@ -38,6 +38,8 @@ new OpenIddictDynamoDb("openiddict", {
     readCapacity: 20,
     writeCapacity: 10,
   },
+  globalSecondaryIndexReadCapacity: 20,
+  globalSecondaryIndexWriteCapacity: 10,
 });
 ```
 
@@ -86,3 +88,7 @@ new OpenIddictDynamoDb("openiddict", {
 | `authorizationsTableArgs` | `TableArgs` (partial) | Override for authorizations table |
 | `scopesTableArgs` | `TableArgs` (partial) | Override for scopes table |
 | `tokensTableArgs` | `TableArgs` (partial) | Override for tokens table |
+| `globalSecondaryIndexReadCapacity` | `Input<number>` | Read capacity for each GSI whose table uses provisioned billing; ignored for on-demand tables |
+| `globalSecondaryIndexWriteCapacity` | `Input<number>` | Write capacity for each GSI whose table uses provisioned billing; ignored for on-demand tables |
+
+GSIs use `KEYS_ONLY` projection; stores re-read base items consistently. Review the repository [production guide](../../docs/production.md) before deployment.

@@ -8,7 +8,7 @@ DynamoDB stores for [OpenIddict](https://github.com/openiddict/openiddict-core),
 dotnet add package ahanoff.OpenIddict.DynamoDb
 ```
 
-Requires .NET 10 and OpenIddict 7.5+.
+Requires .NET 10 and OpenIddict 7.5.x.
 
 ## Register stores
 
@@ -42,8 +42,8 @@ services.AddSingleton<IAmazonDynamoDB>(new AmazonDynamoDBClient());
 | `ScopesTableName` | `OpenIddictScopes` | Table name for scope entities |
 | `TokensTableName` | `OpenIddictTokens` | Table name for token entities |
 | `TokenApplicationShardCount` | `10` | Number of shards for token-by-application GSI queries |
-| `MaxRedirectUrisPerApplication` | `80` | Max redirect + post-logout URIs per application (limited by TransactWriteItems 100-item cap) |
-| `MaxResourcesPerScope` | `95` | Max resources per scope (limited by TransactWriteItems 100-item cap) |
+| `MaxRedirectUrisPerApplication` | `48` | Max redirect + post-logout URIs per application; guarantees worst-case replacement fits one transaction |
+| `MaxResourcesPerScope` | `48` | Max resources per scope; guarantees worst-case replacement fits one transaction |
 | `PruneParallelSegments` | `10` | Parallel scan segments for `PruneAsync` |
 | `PruneBatchSize` | `1000` | Max items pruned per `PruneAsync` call |
 
@@ -58,6 +58,8 @@ await OpenIddictDynamoDbTableCreator.CreateTablesAsync(client, options, cancella
 ```
 
 This creates tables with on-demand billing (`PAY_PER_REQUEST`), including GSIs for the authorization and token tables and TTL on the tokens table. It is idempotent — calling it on existing tables is safe.
+
+The table creator is intended for local development. Production deployments should use one of the IaC modules and complete the [production checklist](docs/production.md).
 
 ## Custom entities
 
@@ -81,6 +83,16 @@ services.AddOpenIddict()
 ```
 
 The same pattern applies for `ReplaceDefaultAuthorizationEntity<T>`, `ReplaceDefaultScopeEntity<T>`, and `ReplaceDefaultTokenEntity<T>`.
+
+Public read/write properties declared on derived entities are stored in a `custom_properties` DynamoDB map as JSON. Unknown fields are retained when an entity is read and written by an older application version.
+
+## Query and consistency behavior
+
+Protocol point lookups use strongly consistent base-table reads. GSI-backed enumeration first discovers keys through the index and then strongly reads the base records. Bulk revocation writes an authoritative base-table revocation marker before its best-effort GSI fanout, so a newly written record hidden by GSI lag is still rejected by point lookup.
+
+The `IQueryable` manager overloads are supported by scanning and materializing the table, then applying the query in memory. They are administrative APIs and must not be placed on request hot paths.
+
+See [Production deployment and operations](docs/production.md) for revocation validation settings, IAM, alarms, backup/restore, migration, and capacity guidance.
 
 ## License
 

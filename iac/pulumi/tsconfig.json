@@ -8,6 +8,11 @@
     "outDir": "bin",
     "rootDir": "src",
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
     "skipLibCheck": true
   },
   "include": ["src"]

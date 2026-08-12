@@ -6,7 +6,7 @@ Terraform module that creates the DynamoDB tables for [OpenIddict.DynamoDb](http
 
 ### Default settings
 
-All tables use on-demand billing (`PAY_PER_REQUEST`):
+All tables use on-demand billing (`PAY_PER_REQUEST`), point-in-time recovery, server-side encryption, and deletion protection:
 
 ```hcl
 module "openiddict" {
@@ -39,6 +39,8 @@ module "openiddict" {
   tokens_billing_mode   = "PROVISIONED"
   tokens_read_capacity  = 20
   tokens_write_capacity = 10
+  tokens_gsi_read_capacity  = 20
+  tokens_gsi_write_capacity = 10
 }
 ```
 
@@ -54,6 +56,8 @@ module "openiddict" {
 | `authorizations_billing_mode` | Billing mode | `string` | `PAY_PER_REQUEST` |
 | `authorizations_read_capacity` | Read capacity (provisioned only) | `number` | `5` |
 | `authorizations_write_capacity` | Write capacity (provisioned only) | `number` | `5` |
+| `authorizations_gsi_read_capacity` | Read capacity for each authorization GSI (provisioned only) | `number` | `5` |
+| `authorizations_gsi_write_capacity` | Write capacity for each authorization GSI (provisioned only) | `number` | `5` |
 | `scopes_table_name` | Table name for scopes | `string` | `OpenIddictScopes` |
 | `scopes_billing_mode` | Billing mode | `string` | `PAY_PER_REQUEST` |
 | `scopes_read_capacity` | Read capacity (provisioned only) | `number` | `5` |
@@ -62,6 +66,11 @@ module "openiddict" {
 | `tokens_billing_mode` | Billing mode | `string` | `PAY_PER_REQUEST` |
 | `tokens_read_capacity` | Read capacity (provisioned only) | `number` | `5` |
 | `tokens_write_capacity` | Write capacity (provisioned only) | `number` | `5` |
+| `tokens_gsi_read_capacity` | Read capacity for each token GSI (provisioned only) | `number` | `5` |
+| `tokens_gsi_write_capacity` | Write capacity for each token GSI (provisioned only) | `number` | `5` |
+| `point_in_time_recovery_enabled` | Enable PITR on every table | `bool` | `true` |
+| `deletion_protection_enabled` | Enable deletion protection on every table | `bool` | `true` |
+| `kms_key_arn` | Optional customer-managed KMS key ARN | `string` | `null` |
 | `tags` | Tags applied to all tables | `map(string)` | `{}` |
 
 ## Outputs
@@ -76,3 +85,5 @@ module "openiddict" {
 | `scopes_table_arn` | Scopes table ARN |
 | `tokens_table_name` | Tokens table name |
 | `tokens_table_arn` | Tokens table ARN |
+
+GSIs use `KEYS_ONLY` projection; stores re-read base items consistently. Review the repository [production guide](../../docs/production.md) before deployment.

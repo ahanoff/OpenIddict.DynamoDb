@@ -20,6 +20,7 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
     public OpenIddictDynamoDbApplicationStore(IAmazonDynamoDB client, OpenIddictDynamoDbOptions options)
     {
         _client = client;
+        options.Validate();
         _options = options;
     }
 
@@ -50,8 +51,11 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
         return count;
     }
 
-    public ValueTask<long> CountAsync<TResult>(Func<IQueryable<TApplication>, IQueryable<TResult>> query, CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+    public async ValueTask<long> CountAsync<TResult>(Func<IQueryable<TApplication>, IQueryable<TResult>> query, CancellationToken cancellationToken)
+    {
+        var applications = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        return query(applications.AsQueryable()).LongCount();
+    }
 
     public async ValueTask CreateAsync(TApplication application, CancellationToken cancellationToken)
     {
@@ -154,16 +158,15 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
             Delete = new Delete { TableName = _options.ApplicationsTableName, Key = CreatePostLogoutRedirectLookupKey(uri, application.Id) }
         }));
 
+        ValidateTransactionSize(items.Count);
+
         try
         {
-            foreach (var batch in Chunk(items, 100))
+            await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest
             {
-                await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest
-                {
-                    ClientRequestToken = Guid.NewGuid().ToString(),
-                    TransactItems = batch
-                }, cancellationToken);
-            }
+                ClientRequestToken = Guid.NewGuid().ToString(),
+                TransactItems = items
+            }, cancellationToken);
         }
         catch (ConditionalCheckFailedException exception)
         {
@@ -202,7 +205,13 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
         }
 
         var applicationId = DynamoDbHelper.GetString(lookup.Item, "ApplicationId");
-        return applicationId is null ? null : await FindByIdAsync(applicationId, cancellationToken);
+        if (applicationId is null || !string.Equals(DynamoDbHelper.GetString(lookup.Item, "ClientId"), identifier, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var application = await FindByIdAsync(applicationId, cancellationToken);
+        return string.Equals(application?.ClientId, identifier, StringComparison.Ordinal) ? application : null;
     }
 
     public IAsyncEnumerable<TApplication> FindByPostLogoutRedirectUriAsync(string uri, CancellationToken cancellationToken)
@@ -214,8 +223,11 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
     public ValueTask<string?> GetApplicationTypeAsync(TApplication application, CancellationToken cancellationToken)
         => new(application.ApplicationType);
 
-    public ValueTask<TResult?> GetAsync<TState, TResult>(Func<IQueryable<TApplication>, TState, IQueryable<TResult>> query, TState state, CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+    public async ValueTask<TResult?> GetAsync<TState, TResult>(Func<IQueryable<TApplication>, TState, IQueryable<TResult>> query, TState state, CancellationToken cancellationToken)
+    {
+        var applications = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        return query(applications.AsQueryable(), state).FirstOrDefault();
+    }
 
     public ValueTask<string?> GetClientIdAsync(TApplication application, CancellationToken cancellationToken)
         => new(application.ClientId);
@@ -313,8 +325,15 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
         while (lastKey is not null && (!count.HasValue || yielded < count.Value));
     }
 
-    public IAsyncEnumerable<TResult> ListAsync<TState, TResult>(Func<IQueryable<TApplication>, TState, IQueryable<TResult>> query, TState state, CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+    public async IAsyncEnumerable<TResult> ListAsync<TState, TResult>(Func<IQueryable<TApplication>, TState, IQueryable<TResult>> query, TState state, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var applications = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        foreach (var result in query(applications.AsQueryable(), state))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return result;
+        }
+    }
 
     public ValueTask SetApplicationTypeAsync(TApplication application, string? type, CancellationToken cancellationToken)
     {
@@ -479,16 +498,15 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
             Put = new Put { TableName = _options.ApplicationsTableName, Item = CreatePostLogoutRedirectLookupItem(uri, application.Id) }
         }));
 
+        ValidateTransactionSize(items.Count);
+
         try
         {
-            foreach (var batch in Chunk(items, 100))
+            await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest
             {
-                await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest
-                {
-                    ClientRequestToken = Guid.NewGuid().ToString(),
-                    TransactItems = batch
-                }, cancellationToken);
-            }
+                ClientRequestToken = Guid.NewGuid().ToString(),
+                TransactItems = items
+            }, cancellationToken);
         }
         catch (ConditionalCheckFailedException exception)
         {
@@ -499,6 +517,11 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
         {
             application.ConcurrencyToken = expected;
             throw CreateConcurrencyException(exception);
+        }
+        catch
+        {
+            application.ConcurrencyToken = expected;
+            throw;
         }
     }
 
@@ -540,35 +563,19 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
         foreach (var item in await BatchGetAsync(applicationKeys, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            yield return DynamoDbHelper.ToApplication<TApplication>(item);
+            var application = DynamoDbHelper.ToApplication<TApplication>(item);
+            var values = pk.StartsWith("REDIRECT#", StringComparison.Ordinal)
+                ? GetDistinctRedirectUris(application)
+                : GetDistinctPostLogoutRedirectUris(application);
+            if (values.Contains(uri, StringComparer.Ordinal))
+            {
+                yield return application;
+            }
         }
     }
 
     private async Task<List<Dictionary<string, AttributeValue>>> BatchGetAsync(List<Dictionary<string, AttributeValue>> keys, CancellationToken cancellationToken)
-    {
-        var items = new List<Dictionary<string, AttributeValue>>();
-        foreach (var batch in Chunk(keys, 100))
-        {
-            var requestItems = new Dictionary<string, KeysAndAttributes>
-            {
-                [_options.ApplicationsTableName] = new() { ConsistentRead = true, Keys = batch }
-            };
-
-            do
-            {
-                var response = await _client.BatchGetItemAsync(new BatchGetItemRequest { RequestItems = requestItems }, cancellationToken);
-                if ((response.Responses ?? []).TryGetValue(_options.ApplicationsTableName, out var responseItems))
-                {
-                    items.AddRange(responseItems);
-                }
-
-                requestItems = response.UnprocessedKeys ?? [];
-            }
-            while (requestItems.Count > 0 && requestItems.Values.Any(value => value.Keys.Count > 0));
-        }
-
-        return items;
-    }
+        => await DynamoDbBatchHelper.GetItemsAsync(_client, _options.ApplicationsTableName, keys, cancellationToken);
 
     private static Dictionary<string, AttributeValue> CreateApplicationKey(string identifier)
         => new()
@@ -588,6 +595,7 @@ public class OpenIddictDynamoDbApplicationStore<TApplication> : IOpenIddictAppli
     {
         var item = CreateClientIdLookupKey(clientId);
         item["ApplicationId"] = DynamoDbHelper.ToAttr(applicationId);
+        item["ClientId"] = DynamoDbHelper.ToAttr(clientId);
         return item;
     }
 

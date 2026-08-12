@@ -19,11 +19,17 @@
 
     <ItemGroup>
         <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+        <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+        <None Include="..\..\docs\production.md" Pack="true" PackagePath="docs\" />
     </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="AWSSDK.DynamoDBv2" />
         <PackageReference Include="OpenIddict.Core" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="OpenIddict.DynamoDb.Tests" />
     </ItemGroup>
 
 </Project>

@@ -5,6 +5,7 @@ using OpenIddict.Abstractions;
 using OpenIddict.DynamoDb.Models;
 using OpenIddict.DynamoDb.Tests.Fixtures;
 using OpenIddict.DynamoDb.Tests.Helpers;
+using OpenIddict.DynamoDb.Helpers;
 
 namespace OpenIddict.DynamoDb.Tests.Stores;
 
@@ -12,10 +13,14 @@ namespace OpenIddict.DynamoDb.Tests.Stores;
 public sealed class TokenStoreTests
 {
     private readonly OpenIddictDynamoDbTokenStore<OpenIddictDynamoDbToken> _store;
+    private readonly OpenIddictDynamoDbAuthorizationStore<OpenIddictDynamoDbAuthorization> _authorizationStore;
+    private readonly DynamoDbFixture _fixture;
 
     public TokenStoreTests(DynamoDbFixture fixture)
     {
         _store = new OpenIddictDynamoDbTokenStore<OpenIddictDynamoDbToken>(fixture.Client, fixture.Options);
+        _authorizationStore = new OpenIddictDynamoDbAuthorizationStore<OpenIddictDynamoDbAuthorization>(fixture.Client, fixture.Options);
+        _fixture = fixture;
     }
 
     [Fact]
@@ -33,6 +38,101 @@ public sealed class TokenStoreTests
         Assert.Equal(token.ReferenceId, stored.ReferenceId);
         Assert.Equal(token.Type, stored.Type);
         Assert.Equal(token.Status, stored.Status);
+    }
+
+    [Fact]
+    public async Task CreateAsync_MissingAuthorization_FailsWithoutPersistingToken()
+    {
+        var token = TestEntities.CreateToken(authorizationId: TestEntities.NewId("missing-authorization"));
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
+            () => _store.CreateAsync(token, CancellationToken.None).AsTask());
+
+        AssertDynamoDbConcurrencyFailure(exception);
+        Assert.Null(await _store.FindByIdAsync(token.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateAsync_AuthorizationWithoutCounter_FailsWithoutPersistingToken()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        await _authorizationStore.CreateAsync(authorization, CancellationToken.None);
+        await _fixture.Client.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountPk(authorization.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountSk)
+            }
+        });
+        var token = TestEntities.CreateToken(authorizationId: authorization.Id);
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
+            () => _store.CreateAsync(token, CancellationToken.None).AsTask());
+
+        AssertDynamoDbConcurrencyFailure(exception);
+        Assert.Null(await _store.FindByIdAsync(token.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_AuthorizationWithoutCounter_FailsClosed()
+    {
+        var authorization = TestEntities.CreateAuthorization();
+        await _authorizationStore.CreateAsync(authorization, CancellationToken.None);
+        var token = TestEntities.CreateToken(authorizationId: authorization.Id);
+        await _store.CreateAsync(token, CancellationToken.None);
+        await _fixture.Client.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountPk(authorization.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountSk)
+            }
+        });
+        token.Status = OpenIddictConstants.Statuses.Revoked;
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
+            () => _store.UpdateAsync(token, CancellationToken.None).AsTask());
+
+        AssertDynamoDbConcurrencyFailure(exception);
+        var stored = await _store.FindByIdAsync(token.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(OpenIddictConstants.Statuses.Valid, stored.Status);
+    }
+
+    [Fact]
+    public async Task CreateAsync_TtlAppliesOnlyToReferenceLookup()
+    {
+        var token = TestEntities.CreateToken(referenceId: TestEntities.NewId("reference"));
+        token.ExpirationDate = DateTimeOffset.UtcNow.AddHours(1);
+
+        await _store.CreateAsync(token, CancellationToken.None);
+
+        var metadata = await _fixture.Client.GetItemAsync(new GetItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenPk(token.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenSk)
+            },
+            ConsistentRead = true
+        });
+        var reference = await _fixture.Client.GetItemAsync(new GetItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.ReferenceIdPk(token.ReferenceId!)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.ReferenceIdSk)
+            },
+            ConsistentRead = true
+        });
+
+        Assert.False(metadata.Item.ContainsKey("ttl"));
+        Assert.True(reference.Item.ContainsKey("ttl"));
     }
 
     [Fact]
@@ -57,6 +157,67 @@ public sealed class TokenStoreTests
 
         Assert.NotNull(stored);
         Assert.Equal(token.Id, stored.Id);
+    }
+
+    [Fact]
+    public async Task FindByReferenceIdAsync_StaleLookupForRotatedToken_ReturnsNull()
+    {
+        var token = TestEntities.CreateToken(referenceId: TestEntities.NewId("reference"));
+        await _store.CreateAsync(token, CancellationToken.None);
+        var staleReferenceId = token.ReferenceId!;
+
+        token.ReferenceId = TestEntities.NewId("rotated-reference");
+        await _store.UpdateAsync(token, CancellationToken.None);
+        await _fixture.Client.PutItemAsync(new PutItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.ReferenceIdPk(staleReferenceId)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.ReferenceIdSk),
+                ["token_id"] = DynamoDbHelper.ToAttr(token.Id)
+            }
+        });
+
+        Assert.Null(await _store.FindByReferenceIdAsync(staleReferenceId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task FindAsync_CollidingSubjectApplicationValues_RemainIsolated()
+    {
+        var expected = TestEntities.CreateToken(subject: "a#b", applicationId: "c");
+        var other = TestEntities.CreateToken(subject: "a", applicationId: "b#c");
+        await _store.CreateAsync(expected, CancellationToken.None);
+        await _store.CreateAsync(other, CancellationToken.None);
+
+        var tokens = await _store.FindAsync("a#b", "c", CancellationToken.None).ToListAsync();
+
+        Assert.Contains(tokens, token => token.Id == expected.Id);
+        Assert.DoesNotContain(tokens, token => token.Id == other.Id);
+    }
+
+    [Fact]
+    public async Task CustomTokenProperties_RoundTrip()
+    {
+        var token = new CustomToken
+        {
+            Id = TestEntities.NewId("token"),
+            ApplicationId = TestEntities.NewId("app"),
+            Subject = TestEntities.NewId("subject"),
+            Status = OpenIddictConstants.Statuses.Valid,
+            Type = OpenIddictConstants.TokenTypeHints.AccessToken,
+            CreationDate = DateTimeOffset.UtcNow,
+            ExpirationDate = DateTimeOffset.UtcNow.AddHours(1),
+            ConcurrencyToken = Guid.NewGuid().ToString(),
+            TenantId = "tenant-42"
+        };
+        var store = new OpenIddictDynamoDbTokenStore<CustomToken>(_fixture.Client, _fixture.Options);
+
+        await store.CreateAsync(token, CancellationToken.None);
+        var stored = await store.FindByIdAsync(token.Id, CancellationToken.None);
+
+        Assert.NotNull(stored);
+        Assert.Equal("tenant-42", stored.TenantId);
     }
 
     [Fact]
@@ -87,6 +248,7 @@ public sealed class TokenStoreTests
     public async Task FindByAuthorizationIdAsync_ReturnsTokensForAuthorization()
     {
         var authorizationId = TestEntities.NewId("authz");
+        await _authorizationStore.CreateAsync(TestEntities.CreateAuthorization(id: authorizationId), CancellationToken.None);
         var token = TestEntities.CreateToken(authorizationId: authorizationId);
         await _store.CreateAsync(token, CancellationToken.None);
 
@@ -151,6 +313,117 @@ public sealed class TokenStoreTests
     }
 
     [Fact]
+    public async Task RevokeByApplicationIdAsync_TokenHiddenFromGsi_IsStillRevokedOnRead()
+    {
+        var applicationId = TestEntities.NewId("app");
+        var token = TestEntities.CreateToken(applicationId: applicationId);
+        await _store.CreateAsync(token, CancellationToken.None);
+        await _fixture.Client.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenPk(token.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenSk)
+            },
+            UpdateExpression = "REMOVE gsi3_pk, gsi3_sk"
+        });
+
+        await _store.RevokeByApplicationIdAsync(applicationId, CancellationToken.None);
+        var stored = await _store.FindByIdAsync(token.Id, CancellationToken.None);
+        var enumerated = await _store.FindBySubjectAsync(token.Subject!, CancellationToken.None)
+            .SingleAsync(item => item.Id == token.Id);
+
+        Assert.NotNull(stored);
+        Assert.Equal(OpenIddictConstants.Statuses.Revoked, stored.Status);
+        Assert.Equal(OpenIddictConstants.Statuses.Revoked, enumerated.Status);
+    }
+
+    [Fact]
+    public async Task RevokeByApplicationIdAsync_DoesNotRevokeTokensCreatedAfterCutoff()
+    {
+        var applicationId = TestEntities.NewId("app");
+        await _store.RevokeByApplicationIdAsync(applicationId, CancellationToken.None);
+        var token = TestEntities.CreateToken(applicationId: applicationId);
+        token.CreationDate = DateTimeOffset.UtcNow.AddSeconds(1);
+        await _store.CreateAsync(token, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(token.Id, CancellationToken.None);
+
+        Assert.NotNull(stored);
+        Assert.Equal(OpenIddictConstants.Statuses.Valid, stored.Status);
+    }
+
+    [Fact]
+    public async Task RevokeByApplicationIdAsync_DoesNotRegressNewerMarker()
+    {
+        var applicationId = TestEntities.NewId("app");
+        var cutoff = DateTimeOffset.UtcNow.AddMinutes(5);
+        var marker = RevocationMarkerHelper.CreateItem(
+            "TOKEN", null, applicationId, null, null, null, cutoff);
+        await _fixture.Client.PutItemAsync(new PutItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Item = marker
+        });
+
+        await _store.RevokeByApplicationIdAsync(applicationId, CancellationToken.None);
+
+        var response = await _fixture.Client.GetItemAsync(new GetItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = RevocationMarkerHelper.CreateKey("TOKEN", null, applicationId, null, null, null),
+            ConsistentRead = true
+        });
+        Assert.Equal(cutoff.ToUnixTimeMilliseconds(), DynamoDbHelper.GetLong(response.Item, "revoked_at"));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FilterChangeCannotClearRevocationMarker()
+    {
+        var token = TestEntities.CreateToken();
+        await _store.CreateAsync(token, CancellationToken.None);
+        await RevocationMarkerHelper.WriteAsync(
+            _fixture.Client, _fixture.Options.TokensTableName, "TOKEN",
+            token.Subject, token.ApplicationId, null, token.Status, token.Type,
+            DateTimeOffset.UtcNow.AddSeconds(1), CancellationToken.None);
+        token.Status = OpenIddictConstants.Statuses.Inactive;
+        token.Type = OpenIddictConstants.TokenTypeHints.RefreshToken;
+
+        await _store.UpdateAsync(token, CancellationToken.None);
+
+        var stored = await _store.FindByIdAsync(token.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(OpenIddictConstants.Statuses.Revoked, stored.Status);
+        Assert.Equal(OpenIddictConstants.TokenTypeHints.RefreshToken, stored.Type);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ConcurrentFilteredRevocation_FailsClosed()
+    {
+        var token = TestEntities.CreateToken();
+        await _store.CreateAsync(token, CancellationToken.None);
+        using var client = new RevocationRaceClient(_fixture.Client, cancellationToken =>
+            RevocationMarkerHelper.WriteAsync(
+                _fixture.Client, _fixture.Options.TokensTableName, "TOKEN",
+                token.Subject, token.ApplicationId, null, OpenIddictConstants.Statuses.Valid,
+                OpenIddictConstants.TokenTypeHints.AccessToken,
+                DateTimeOffset.UtcNow.AddSeconds(1), cancellationToken));
+        var store = new OpenIddictDynamoDbTokenStore<OpenIddictDynamoDbToken>(client, _fixture.Options);
+        token.Status = OpenIddictConstants.Statuses.Inactive;
+        token.Type = OpenIddictConstants.TokenTypeHints.RefreshToken;
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ConcurrencyException>(
+            () => store.UpdateAsync(token, CancellationToken.None).AsTask());
+
+        AssertDynamoDbConcurrencyFailure(exception);
+        var stored = await _store.FindByIdAsync(token.Id, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(OpenIddictConstants.Statuses.Revoked, stored.Status);
+        Assert.Equal(OpenIddictConstants.TokenTypeHints.AccessToken, stored.Type);
+    }
+
+    [Fact]
     public async Task RevokeBySubjectAsync_RevokesTokensForSubject()
     {
         var subject = TestEntities.NewId("subject");
@@ -169,6 +442,7 @@ public sealed class TokenStoreTests
     public async Task RevokeByAuthorizationIdAsync_RevokesTokensForAuthorization()
     {
         var authorizationId = TestEntities.NewId("authz");
+        await _authorizationStore.CreateAsync(TestEntities.CreateAuthorization(id: authorizationId), CancellationToken.None);
         var token = TestEntities.CreateToken(authorizationId: authorizationId);
         await _store.CreateAsync(token, CancellationToken.None);
 
@@ -289,7 +563,7 @@ public sealed class TokenStoreTests
     }
 
     [Fact]
-    public async Task FindByIdAsync_ExpiredToken_ReturnsNull()
+    public async Task FindByIdAsync_ExpiredToken_RemainsAvailableToManager()
     {
         var token = TestEntities.CreateToken();
         token.ExpirationDate = DateTimeOffset.UtcNow.AddHours(-1);
@@ -297,11 +571,12 @@ public sealed class TokenStoreTests
 
         var result = await _store.FindByIdAsync(token.Id, CancellationToken.None);
 
-        Assert.Null(result);
+        Assert.NotNull(result);
+        Assert.Equal(token.Id, result.Id);
     }
 
     [Fact]
-    public async Task FindByReferenceIdAsync_ExpiredToken_ReturnsNull()
+    public async Task FindByReferenceIdAsync_ExpiredToken_RemainsAvailableToManager()
     {
         var token = TestEntities.CreateToken(referenceId: TestEntities.NewId("reference"));
         token.ExpirationDate = DateTimeOffset.UtcNow.AddHours(-1);
@@ -309,11 +584,12 @@ public sealed class TokenStoreTests
 
         var result = await _store.FindByReferenceIdAsync(token.ReferenceId!, CancellationToken.None);
 
-        Assert.Null(result);
+        Assert.NotNull(result);
+        Assert.Equal(token.Id, result.Id);
     }
 
     [Fact]
-    public async Task FindBySubjectAsync_ExpiredToken_ExcludedFromResults()
+    public async Task FindBySubjectAsync_ExpiredToken_RemainsAvailableToManager()
     {
         var subject = TestEntities.NewId("subject");
         var validToken = TestEntities.CreateToken(subject: subject);
@@ -324,12 +600,12 @@ public sealed class TokenStoreTests
 
         var tokens = await _store.FindBySubjectAsync(subject, CancellationToken.None).ToListAsync();
 
-        Assert.Single(tokens);
-        Assert.Equal(validToken.Id, tokens[0].Id);
+        Assert.Contains(tokens, token => token.Id == validToken.Id);
+        Assert.Contains(tokens, token => token.Id == expiredToken.Id);
     }
 
     [Fact]
-    public async Task FindByApplicationIdAsync_ExpiredToken_ExcludedFromResults()
+    public async Task FindByApplicationIdAsync_ExpiredToken_RemainsAvailableToManager()
     {
         var applicationId = TestEntities.NewId("app");
         var validToken = TestEntities.CreateToken(applicationId: applicationId);
@@ -340,12 +616,12 @@ public sealed class TokenStoreTests
 
         var tokens = await _store.FindByApplicationIdAsync(applicationId, CancellationToken.None).ToListAsync();
 
-        Assert.Single(tokens);
-        Assert.Equal(validToken.Id, tokens[0].Id);
+        Assert.Contains(tokens, token => token.Id == validToken.Id);
+        Assert.Contains(tokens, token => token.Id == expiredToken.Id);
     }
 
     [Fact]
-    public async Task FindAsync_ExpiredToken_ExcludedFromResults()
+    public async Task FindAsync_ExpiredToken_RemainsAvailableToManager()
     {
         var subject = TestEntities.NewId("subject");
         var validToken = TestEntities.CreateToken(subject: subject);
@@ -356,8 +632,8 @@ public sealed class TokenStoreTests
 
         var tokens = await _store.FindAsync(subject, client: null, CancellationToken.None).ToListAsync();
 
-        Assert.Single(tokens);
-        Assert.Equal(validToken.Id, tokens[0].Id);
+        Assert.Contains(tokens, token => token.Id == validToken.Id);
+        Assert.Contains(tokens, token => token.Id == expiredToken.Id);
     }
 
     [Fact]
@@ -380,14 +656,13 @@ public sealed class TokenStoreTests
     public async Task FindByAuthorizationIdAsync_DoesNotFilterExpired()
     {
         var authorizationId = TestEntities.NewId("authz");
+        await _authorizationStore.CreateAsync(TestEntities.CreateAuthorization(id: authorizationId), CancellationToken.None);
         var token = TestEntities.CreateToken(authorizationId: authorizationId);
         token.ExpirationDate = DateTimeOffset.UtcNow.AddHours(-1);
         await _store.CreateAsync(token, CancellationToken.None);
 
         var tokens = await _store.FindByAuthorizationIdAsync(authorizationId, CancellationToken.None).ToListAsync();
 
-        // FindByAuthorizationIdAsync intentionally does NOT filter expired tokens
-        // (unlike FindBySubjectAsync, FindByApplicationIdAsync which do)
         Assert.Single(tokens);
     }
 
@@ -578,6 +853,7 @@ public sealed class TokenStoreTests
         await _store.CreateAsync(token, CancellationToken.None);
 
         var newAuthzId = TestEntities.NewId("newauthz");
+        await _authorizationStore.CreateAsync(TestEntities.CreateAuthorization(id: newAuthzId), CancellationToken.None);
         await _store.SetAuthorizationIdAsync(token, newAuthzId, CancellationToken.None);
         await _store.UpdateAsync(token, CancellationToken.None);
 
@@ -737,25 +1013,58 @@ public sealed class TokenStoreTests
     }
 
     [Fact]
-    public async Task CountAsync_WithIQueryable_ThrowsNotSupportedException()
+    public async Task PruneAsync_ReferenceNowOwnedByAnotherToken_DoesNotDeleteLookup()
     {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.CountAsync<OpenIddictDynamoDbToken>(q => q, CancellationToken.None).AsTask());
+        var referenceId = TestEntities.NewId("reference");
+        var stale = TestEntities.CreateToken(referenceId: referenceId);
+        stale.Status = OpenIddictConstants.Statuses.Revoked;
+        stale.CreationDate = DateTimeOffset.UtcNow.AddDays(-30);
+        stale.ExpirationDate = DateTimeOffset.UtcNow.AddDays(-1);
+        await _store.CreateAsync(stale, CancellationToken.None);
+        var owner = TestEntities.CreateToken(referenceId: TestEntities.NewId("temporary-reference"));
+        await _store.CreateAsync(owner, CancellationToken.None);
+        await _fixture.Client.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenPk(owner.Id)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenSk)
+            },
+            UpdateExpression = "SET reference_id = :reference",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":reference"] = DynamoDbHelper.ToAttr(referenceId)
+            }
+        });
+        await _fixture.Client.PutItemAsync(new PutItemRequest
+        {
+            TableName = _fixture.Options.TokensTableName,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.ReferenceIdPk(referenceId)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.ReferenceIdSk),
+                ["token_id"] = DynamoDbHelper.ToAttr(owner.Id),
+                ["reference_id"] = DynamoDbHelper.ToAttr(referenceId)
+            }
+        });
+
+        await _store.PruneAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        var stored = await _store.FindByReferenceIdAsync(referenceId, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(owner.Id, stored.Id);
     }
 
     [Fact]
-    public async Task GetAsync_ThrowsNotSupportedException()
+    public async Task IQueryableOverloads_ExecuteAgainstMaterializedResults()
     {
         var token = TestEntities.CreateToken();
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.GetAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).AsTask());
-    }
+        await _store.CreateAsync(token, CancellationToken.None);
 
-    [Fact]
-    public async Task ListAsync_WithIQueryable_ThrowsNotSupportedException()
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.ListAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).ToListAsync());
+        Assert.True(await _store.CountAsync(q => q.Where(item => item.Id == token.Id), CancellationToken.None) >= 1);
+        Assert.Equal(token.Id, await _store.GetAsync((q, id) => q.Where(item => item.Id == id).Select(item => item.Id), token.Id, CancellationToken.None));
+        Assert.Equal([token.Id], await _store.ListAsync((q, id) => q.Where(item => item.Id == id).Select(item => item.Id), token.Id, CancellationToken.None).ToListAsync());
     }
 
 }

@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.0"
+      version = ">= 5.0, < 7.0"
     }
   }
 }
@@ -25,13 +25,19 @@ resource "aws_dynamodb_table" "applications" {
     type = "S"
   }
 
-  dynamic "read_capacity" {
-    for_each = var.applications_billing_mode == "PROVISIONED" ? [1] : []
-    content {}
-  }
-
   write_capacity = var.applications_billing_mode == "PROVISIONED" ? var.applications_write_capacity : null
   read_capacity  = var.applications_billing_mode == "PROVISIONED" ? var.applications_read_capacity : null
+
+  deletion_protection_enabled = var.deletion_protection_enabled
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = var.kms_key_arn
+  }
 
   tags = var.tags
 }
@@ -76,18 +82,33 @@ resource "aws_dynamodb_table" "authorizations" {
     name            = "SubjectIndex"
     hash_key        = "gsi1_pk"
     range_key       = "gsi1_sk"
-    projection_type = "ALL"
+    projection_type = "KEYS_ONLY"
+    read_capacity   = var.authorizations_billing_mode == "PROVISIONED" ? var.authorizations_gsi_read_capacity : null
+    write_capacity  = var.authorizations_billing_mode == "PROVISIONED" ? var.authorizations_gsi_write_capacity : null
   }
 
   global_secondary_index {
     name            = "ApplicationIndex"
     hash_key        = "gsi2_pk"
     range_key       = "gsi2_sk"
-    projection_type = "ALL"
+    projection_type = "KEYS_ONLY"
+    read_capacity   = var.authorizations_billing_mode == "PROVISIONED" ? var.authorizations_gsi_read_capacity : null
+    write_capacity  = var.authorizations_billing_mode == "PROVISIONED" ? var.authorizations_gsi_write_capacity : null
   }
 
   write_capacity = var.authorizations_billing_mode == "PROVISIONED" ? var.authorizations_write_capacity : null
   read_capacity  = var.authorizations_billing_mode == "PROVISIONED" ? var.authorizations_read_capacity : null
+
+  deletion_protection_enabled = var.deletion_protection_enabled
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = var.kms_key_arn
+  }
 
   tags = var.tags
 }
@@ -110,6 +131,17 @@ resource "aws_dynamodb_table" "scopes" {
 
   write_capacity = var.scopes_billing_mode == "PROVISIONED" ? var.scopes_write_capacity : null
   read_capacity  = var.scopes_billing_mode == "PROVISIONED" ? var.scopes_read_capacity : null
+
+  deletion_protection_enabled = var.deletion_protection_enabled
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = var.kms_key_arn
+  }
 
   tags = var.tags
 }
@@ -174,28 +206,36 @@ resource "aws_dynamodb_table" "tokens" {
     name            = "SubjectAppIndex"
     hash_key        = "gsi1_pk"
     range_key       = "gsi1_sk"
-    projection_type = "ALL"
+    projection_type = "KEYS_ONLY"
+    read_capacity   = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_gsi_read_capacity : null
+    write_capacity  = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_gsi_write_capacity : null
   }
 
   global_secondary_index {
     name            = "SubjectIndex"
     hash_key        = "gsi2_pk"
     range_key       = "gsi2_sk"
-    projection_type = "ALL"
+    projection_type = "KEYS_ONLY"
+    read_capacity   = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_gsi_read_capacity : null
+    write_capacity  = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_gsi_write_capacity : null
   }
 
   global_secondary_index {
     name            = "ApplicationShardedIndex"
     hash_key        = "gsi3_pk"
     range_key       = "gsi3_sk"
-    projection_type = "ALL"
+    projection_type = "KEYS_ONLY"
+    read_capacity   = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_gsi_read_capacity : null
+    write_capacity  = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_gsi_write_capacity : null
   }
 
   global_secondary_index {
     name            = "AuthorizationIndex"
     hash_key        = "gsi4_pk"
     range_key       = "gsi4_sk"
-    projection_type = "ALL"
+    projection_type = "KEYS_ONLY"
+    read_capacity   = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_gsi_read_capacity : null
+    write_capacity  = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_gsi_write_capacity : null
   }
 
   ttl {
@@ -205,6 +245,17 @@ resource "aws_dynamodb_table" "tokens" {
 
   write_capacity = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_write_capacity : null
   read_capacity  = var.tokens_billing_mode == "PROVISIONED" ? var.tokens_read_capacity : null
+
+  deletion_protection_enabled = var.deletion_protection_enabled
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = var.kms_key_arn
+  }
 
   tags = var.tags
 }
