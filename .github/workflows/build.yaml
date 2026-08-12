@@ -10,14 +10,14 @@ jobs:
 
     services:
       dynamodb-local:
-        image: amazon/dynamodb-local:latest
+        image: amazon/dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab
         ports:
           - 8000:8000
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
 
@@ -28,3 +28,43 @@ jobs:
         env:
           AWS_ENDPOINT_URL: http://localhost:8000
         run: make test
+
+  typescript-iac:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        working-directory:
+          - iac/cdk
+          - iac/pulumi
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ${{ matrix.working-directory }}/pnpm-lock.yaml
+
+      - name: Build and test
+        run: pnpm install --frozen-lockfile && pnpm build && pnpm test
+        working-directory: ${{ matrix.working-directory }}
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: 1.15.8
+
+      - name: Validate
+        working-directory: iac/terraform
+        run: |
+          terraform fmt -check
+          terraform init -backend=false -input=false
+          terraform validate

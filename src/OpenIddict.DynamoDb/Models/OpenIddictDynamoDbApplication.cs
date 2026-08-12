@@ -3,8 +3,9 @@ namespace OpenIddict.DynamoDb.Models;
 /// <summary>
 /// Represents a OpenIddict application
 /// </summary>
-public class OpenIddictDynamoDbApplication
+public class OpenIddictDynamoDbApplication : IOpenIddictDynamoDbCustomEntity
 {
+    Dictionary<string, string> IOpenIddictDynamoDbCustomEntity.CustomPropertyData { get; } = new(StringComparer.Ordinal);
     public virtual string Id { get; set; } = null!;
     public virtual string? ClientId { get; set; }
     public virtual string? ClientSecret { get; set; }

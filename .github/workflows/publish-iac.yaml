@@ -1,0 +1,51 @@
+name: Publish IaC packages
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - package: cdk
+            working-directory: iac/cdk
+          - package: pulumi
+            working-directory: iac/pulumi
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ${{ matrix.working-directory }}/pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
+
+      - name: Install and build
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          pnpm version "$VERSION" --no-git-tag-version
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm test
+        working-directory: ${{ matrix.working-directory }}
+
+      - name: Publish
+        run: |
+          TAG="${{ github.event.release.prerelease && 'next' || 'latest' }}"
+          pnpm publish --access public --provenance --tag "$TAG" --no-git-checks
+        working-directory: ${{ matrix.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

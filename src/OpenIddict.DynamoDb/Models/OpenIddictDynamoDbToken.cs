@@ -3,8 +3,9 @@ namespace OpenIddict.DynamoDb.Models;
 /// <summary>
 /// Represents a OpenIddict token
 /// </summary>
-public class OpenIddictDynamoDbToken
+public class OpenIddictDynamoDbToken : IOpenIddictDynamoDbCustomEntity
 {
+    Dictionary<string, string> IOpenIddictDynamoDbCustomEntity.CustomPropertyData { get; } = new(StringComparer.Ordinal);
     public virtual string? ApplicationId { get; set; }
     public virtual string? AuthorizationId { get; set; }
     public virtual string? ConcurrencyToken { get; set; } = Guid.NewGuid().ToString();

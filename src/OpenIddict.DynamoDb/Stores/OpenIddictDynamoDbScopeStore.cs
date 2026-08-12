@@ -19,6 +19,7 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
     public OpenIddictDynamoDbScopeStore(IAmazonDynamoDB client, OpenIddictDynamoDbOptions options)
     {
         _client = client;
+        options.Validate();
         _options = options;
     }
 
@@ -46,8 +47,11 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
         return count;
     }
 
-    public ValueTask<long> CountAsync<TResult>(Func<IQueryable<TScope>, IQueryable<TResult>> query, CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+    public async ValueTask<long> CountAsync<TResult>(Func<IQueryable<TScope>, IQueryable<TResult>> query, CancellationToken cancellationToken)
+    {
+        var scopes = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        return query(scopes.AsQueryable()).LongCount();
+    }
 
     public async ValueTask CreateAsync(TScope scope, CancellationToken cancellationToken)
     {
@@ -82,6 +86,8 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
 
     public async ValueTask DeleteAsync(TScope scope, CancellationToken cancellationToken)
     {
+        var resources = GetDistinctResources(scope);
+        ValidateResourceCount(resources);
         var items = new List<TransactWriteItem>
         {
             new()
@@ -111,14 +117,12 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
             });
         }
 
-        items.AddRange(GetDistinctResources(scope).Select(resource => new TransactWriteItem { Delete = new Delete { TableName = _options.ScopesTableName, Key = CreateResourceLookupKey(resource, scope.Id) } }));
+        items.AddRange(resources.Select(resource => new TransactWriteItem { Delete = new Delete { TableName = _options.ScopesTableName, Key = CreateResourceLookupKey(resource, scope.Id) } }));
+        ValidateTransactionSize(items.Count);
 
         try
         {
-            foreach (var batch in Chunk(items, 100))
-            {
-                await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest { ClientRequestToken = Guid.NewGuid().ToString(), TransactItems = batch }, cancellationToken);
-            }
+            await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest { ClientRequestToken = Guid.NewGuid().ToString(), TransactItems = items }, cancellationToken);
         }
         catch (ConditionalCheckFailedException exception)
         {
@@ -145,20 +149,34 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
         }
 
         var scopeId = DynamoDbHelper.GetString(lookup.Item, "scope_id");
-        return scopeId is null ? null : await FindByIdAsync(scopeId, cancellationToken);
+        if (scopeId is null || !string.Equals(DynamoDbHelper.GetString(lookup.Item, "name"), name, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var scope = await FindByIdAsync(scopeId, cancellationToken);
+        return string.Equals(scope?.Name, name, StringComparison.Ordinal) ? scope : null;
     }
 
     public async IAsyncEnumerable<TScope> FindByNamesAsync(ImmutableArray<string> names, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         if (names.IsDefaultOrEmpty) yield break;
 
-        var lookups = await BatchGetAsync(names.Distinct(StringComparer.Ordinal).Select(CreateNameLookupKey).ToList(), cancellationToken);
+        var requestedNames = names.Distinct(StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
+        var lookups = await BatchGetAsync(requestedNames.Select(CreateNameLookupKey).ToList(), cancellationToken);
+        lookups = lookups
+            .Where(item => DynamoDbHelper.GetString(item, "name") is string name && requestedNames.Contains(name))
+            .ToList();
         var scopeKeys = lookups.Select(item => DynamoDbHelper.GetString(item, "scope_id")).Where(id => id is not null).Distinct(StringComparer.Ordinal).Select(id => CreateScopeKey(id!)).ToList();
 
         foreach (var item in await BatchGetAsync(scopeKeys, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            yield return DynamoDbHelper.ToScope<TScope>(item);
+            var scope = DynamoDbHelper.ToScope<TScope>(item);
+            if (scope.Name is not null && requestedNames.Contains(scope.Name))
+            {
+                yield return scope;
+            }
         }
     }
 
@@ -178,7 +196,11 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            scopeIds.AddRange((response.Items ?? []).Select(item => DynamoDbHelper.GetString(item, "sk")).Where(sk => sk is not null).Select(sk => KeyHelper.ExtractId(sk!, "SCOPE#")));
+            scopeIds.AddRange((response.Items ?? [])
+                .Where(item => string.Equals(DynamoDbHelper.GetString(item, "resource"), resource, StringComparison.Ordinal))
+                .Select(item => DynamoDbHelper.GetString(item, "sk"))
+                .Where(sk => sk is not null)
+                .Select(sk => KeyHelper.ExtractId(sk!, "SCOPE#")));
             lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey is not null);
@@ -187,12 +209,19 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
         foreach (var item in await BatchGetAsync(scopeKeys, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            yield return DynamoDbHelper.ToScope<TScope>(item);
+            var scope = DynamoDbHelper.ToScope<TScope>(item);
+            if (GetDistinctResources(scope).Contains(resource, StringComparer.Ordinal))
+            {
+                yield return scope;
+            }
         }
     }
 
-    public ValueTask<TResult?> GetAsync<TState, TResult>(Func<IQueryable<TScope>, TState, IQueryable<TResult>> query, TState state, CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+    public async ValueTask<TResult?> GetAsync<TState, TResult>(Func<IQueryable<TScope>, TState, IQueryable<TResult>> query, TState state, CancellationToken cancellationToken)
+    {
+        var scopes = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        return query(scopes.AsQueryable(), state).FirstOrDefault();
+    }
 
     public ValueTask<string?> GetDescriptionAsync(TScope scope, CancellationToken cancellationToken) => new(scope.Description);
     public ValueTask<ImmutableDictionary<CultureInfo, string>> GetDescriptionsAsync(TScope scope, CancellationToken cancellationToken) => new(JsonSerializationHelper.DeserializeCultureInfoDictionary(scope.Descriptions));
@@ -247,8 +276,15 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
         while (lastKey is not null && (!count.HasValue || yielded < count.Value));
     }
 
-    public IAsyncEnumerable<TResult> ListAsync<TState, TResult>(Func<IQueryable<TScope>, TState, IQueryable<TResult>> query, TState state, CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+    public async IAsyncEnumerable<TResult> ListAsync<TState, TResult>(Func<IQueryable<TScope>, TState, IQueryable<TResult>> query, TState state, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var scopes = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        foreach (var result in query(scopes.AsQueryable(), state))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return result;
+        }
+    }
 
     public ValueTask SetDescriptionAsync(TScope scope, string? description, CancellationToken cancellationToken) { scope.Description = description; return default; }
     public ValueTask SetDescriptionsAsync(TScope scope, ImmutableDictionary<CultureInfo, string> descriptions, CancellationToken cancellationToken) { scope.Descriptions = JsonSerializationHelper.SerializeCultureInfoDictionary(descriptions); return default; }
@@ -315,6 +351,11 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
             scope.ConcurrencyToken = expected;
             throw CreateConcurrencyException(exception);
         }
+        catch
+        {
+            scope.ConcurrencyToken = expected;
+            throw;
+        }
     }
 
     private Dictionary<string, AttributeValue> ToItem(TScope scope)
@@ -327,26 +368,12 @@ public class OpenIddictDynamoDbScopeStore<TScope> : IOpenIddictScopeStore<TScope
 
     private static Dictionary<string, AttributeValue> CreateScopeKey(string identifier) => new() { ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.ScopePk(identifier)), ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.ScopeSk) };
     private static Dictionary<string, AttributeValue> CreateNameLookupKey(string name) => new() { ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.ScopeNamePk(name)), ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.ScopeNameSk) };
-    private static Dictionary<string, AttributeValue> CreateNameLookupItem(string name, string scopeId) { var item = CreateNameLookupKey(name); item["scope_id"] = DynamoDbHelper.ToAttr(scopeId); return item; }
+    private static Dictionary<string, AttributeValue> CreateNameLookupItem(string name, string scopeId) { var item = CreateNameLookupKey(name); item["scope_id"] = DynamoDbHelper.ToAttr(scopeId); item["name"] = DynamoDbHelper.ToAttr(name); return item; }
     private static Dictionary<string, AttributeValue> CreateResourceLookupKey(string resource, string scopeId) => new() { ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.ScopeResourcePk(resource)), ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.ScopeResourceSk(scopeId)) };
-    private static Dictionary<string, AttributeValue> CreateResourceLookupItem(string resource, string scopeId) { var item = CreateResourceLookupKey(resource, scopeId); item["scope_id"] = DynamoDbHelper.ToAttr(scopeId); return item; }
+    private static Dictionary<string, AttributeValue> CreateResourceLookupItem(string resource, string scopeId) { var item = CreateResourceLookupKey(resource, scopeId); item["scope_id"] = DynamoDbHelper.ToAttr(scopeId); item["resource"] = DynamoDbHelper.ToAttr(resource); return item; }
 
     private async Task<List<Dictionary<string, AttributeValue>>> BatchGetAsync(List<Dictionary<string, AttributeValue>> keys, CancellationToken cancellationToken)
-    {
-        var items = new List<Dictionary<string, AttributeValue>>();
-        foreach (var batch in Chunk(keys, 100))
-        {
-            var requestItems = new Dictionary<string, KeysAndAttributes> { [_options.ScopesTableName] = new() { ConsistentRead = true, Keys = batch } };
-            do
-            {
-                var response = await _client.BatchGetItemAsync(new BatchGetItemRequest { RequestItems = requestItems }, cancellationToken);
-                if ((response.Responses ?? []).TryGetValue(_options.ScopesTableName, out var responseItems)) items.AddRange(responseItems);
-                requestItems = response.UnprocessedKeys ?? [];
-            }
-            while (requestItems.Count > 0 && requestItems.Values.Any(value => value.Keys.Count > 0));
-        }
-        return items;
-    }
+        => await DynamoDbBatchHelper.GetItemsAsync(_client, _options.ScopesTableName, keys, cancellationToken);
 
     private static IEnumerable<List<T>> Chunk<T>(IReadOnlyList<T> items, int size)
     {

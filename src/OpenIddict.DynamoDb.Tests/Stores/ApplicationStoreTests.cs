@@ -7,6 +7,7 @@ using OpenIddict.DynamoDb.Tests.Helpers;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using OpenIddict.DynamoDb.Helpers;
 
 namespace OpenIddict.DynamoDb.Tests.Stores;
 
@@ -56,6 +57,49 @@ public sealed class ApplicationStoreTests
 
         Assert.NotNull(stored);
         Assert.Equal(application.Id, stored.Id);
+    }
+
+    [Fact]
+    public async Task FindByClientIdAsync_StaleLookupForRenamedApplication_ReturnsNull()
+    {
+        var application = TestEntities.CreateApplication(clientId: TestEntities.NewId("client"));
+        await _store.CreateAsync(application, CancellationToken.None);
+        var staleClientId = application.ClientId!;
+
+        application.ClientId = TestEntities.NewId("renamed-client");
+        await _store.UpdateAsync(application, CancellationToken.None);
+        await _fixture.Client.PutItemAsync(new PutItemRequest
+        {
+            TableName = _fixture.Options.ApplicationsTableName,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.ClientIdPk(staleClientId)),
+                ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.ClientIdSk),
+                ["ApplicationId"] = DynamoDbHelper.ToAttr(application.Id)
+            }
+        });
+
+        Assert.Null(await _store.FindByClientIdAsync(staleClientId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CustomApplicationProperties_RoundTrip()
+    {
+        var store = new OpenIddictDynamoDbApplicationStore<CustomApplication>(_fixture.Client, _fixture.Options);
+        var source = TestEntities.CreateApplication();
+        var application = new CustomApplication
+        {
+            Id = source.Id,
+            ClientId = source.ClientId,
+            ConcurrencyToken = source.ConcurrencyToken,
+            TenantId = "tenant-42"
+        };
+
+        await store.CreateAsync(application, CancellationToken.None);
+        var stored = await store.FindByIdAsync(application.Id, CancellationToken.None);
+
+        Assert.NotNull(stored);
+        Assert.Equal("tenant-42", stored.TenantId);
     }
 
     [Fact]
@@ -501,24 +545,14 @@ public sealed class ApplicationStoreTests
     }
 
     [Fact]
-    public async Task CountAsync_WithIQueryable_ThrowsNotSupportedException()
+    public async Task IQueryableOverloads_ExecuteAgainstMaterializedResults()
     {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.CountAsync<OpenIddictDynamoDbApplication>(q => q, CancellationToken.None).AsTask());
-    }
+        var application = TestEntities.CreateApplication();
+        await _store.CreateAsync(application, CancellationToken.None);
 
-    [Fact]
-    public async Task GetAsync_ThrowsNotSupportedException()
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.GetAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).AsTask());
-    }
-
-    [Fact]
-    public async Task ListAsync_WithIQueryable_ThrowsNotSupportedException()
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.ListAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).ToListAsync());
+        Assert.True(await _store.CountAsync(q => q.Where(item => item.Id == application.Id), CancellationToken.None) >= 1);
+        Assert.Equal(application.Id, await _store.GetAsync((q, id) => q.Where(item => item.Id == id).Select(item => item.Id), application.Id, CancellationToken.None));
+        Assert.Equal([application.Id], await _store.ListAsync((q, id) => q.Where(item => item.Id == id).Select(item => item.Id), application.Id, CancellationToken.None).ToListAsync());
     }
 
     [Fact]

@@ -22,6 +22,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
     public OpenIddictDynamoDbAuthorizationStore(IAmazonDynamoDB client, OpenIddictDynamoDbOptions options)
     {
         _client = client;
+        options.Validate();
         _options = options;
     }
 
@@ -52,43 +53,103 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
         return count;
     }
 
-    public ValueTask<long> CountAsync<TResult>(
+    public async ValueTask<long> CountAsync<TResult>(
         Func<IQueryable<TAuthorization>, IQueryable<TResult>> query,
         CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+    {
+        var authorizations = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        return query(authorizations.AsQueryable()).LongCount();
+    }
 
     public async ValueTask CreateAsync(TAuthorization authorization, CancellationToken cancellationToken)
     {
         var attributes = ToItem(authorization);
 
-        await _client.PutItemAsync(new PutItemRequest
+        try
         {
-            TableName = _options.AuthorizationsTableName,
-            Item = attributes,
-            ConditionExpression = "attribute_not_exists(pk)"
-        }, cancellationToken);
+            await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest
+            {
+                ClientRequestToken = Guid.NewGuid().ToString(),
+                TransactItems =
+                [
+                    new TransactWriteItem
+                    {
+                        Put = new Put
+                        {
+                            TableName = _options.AuthorizationsTableName,
+                            Item = attributes,
+                            ConditionExpression = "attribute_not_exists(pk)"
+                        }
+                    },
+                    new TransactWriteItem
+                    {
+                        Put = new Put
+                        {
+                            TableName = _options.TokensTableName,
+                            Item = CreateAuthorizationTokenCountItem(authorization.Id),
+                            ConditionExpression = "attribute_not_exists(pk)"
+                        }
+                    }
+                ]
+            }, cancellationToken);
+        }
+        catch (ConditionalCheckFailedException exception)
+        {
+            throw CreateConcurrencyException(exception);
+        }
+        catch (TransactionCanceledException exception) when (HasConditionalCheckFailure(exception))
+        {
+            throw CreateConcurrencyException(exception);
+        }
     }
 
     public async ValueTask DeleteAsync(TAuthorization authorization, CancellationToken cancellationToken)
     {
         try
         {
-            await _client.DeleteItemAsync(new DeleteItemRequest
+            await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest
             {
-                TableName = _options.AuthorizationsTableName,
-                Key = CreateKey(authorization.Id),
-                ConditionExpression = "#token = :expected",
-                ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    ["#token"] = "concurrency_token"
-                },
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    [":expected"] = DynamoDbHelper.ToAttr(authorization.ConcurrencyToken)
-                }
+                ClientRequestToken = Guid.NewGuid().ToString(),
+                TransactItems =
+                [
+                    new TransactWriteItem
+                    {
+                        Delete = new Delete
+                        {
+                            TableName = _options.AuthorizationsTableName,
+                            Key = CreateKey(authorization.Id),
+                            ConditionExpression = "#token = :expected",
+                            ExpressionAttributeNames = new Dictionary<string, string>
+                            {
+                                ["#token"] = "concurrency_token"
+                            },
+                            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                            {
+                                [":expected"] = DynamoDbHelper.ToAttr(authorization.ConcurrencyToken)
+                            }
+                        }
+                    },
+                    new TransactWriteItem
+                    {
+                        Delete = new Delete
+                        {
+                            TableName = _options.TokensTableName,
+                            Key = CreateAuthorizationTokenCountKey(authorization.Id),
+                            ConditionExpression = "token_count = :zero",
+                            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                            {
+                                [":zero"] = new AttributeValue { N = "0" }
+                            }
+                        }
+                    }
+                ]
             }, cancellationToken);
         }
         catch (ConditionalCheckFailedException exception)
+        {
+            throw CreateConcurrencyException(exception);
+        }
+        catch (TransactionCanceledException exception) when (HasConditionalCheckFailure(exception))
         {
             throw CreateConcurrencyException(exception);
         }
@@ -110,10 +171,20 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
         CancellationToken cancellationToken)
         => FindAsync(subject, client, status, type, scopes: default, cancellationToken);
 
-    public async IAsyncEnumerable<TAuthorization> FindAsync(
+    public IAsyncEnumerable<TAuthorization> FindAsync(
         string? subject, string? client,
         string? status, string? type,
         ImmutableArray<string>? scopes,
+        CancellationToken cancellationToken)
+        => FindCoreAsync(subject, client, status, type, scopes, applyRevocationMarkers: true, cancellationToken);
+
+    private async IAsyncEnumerable<TAuthorization> FindCoreAsync(
+        string? subject,
+        string? client,
+        string? status,
+        string? type,
+        ImmutableArray<string>? scopes,
+        bool applyRevocationMarkers,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var results = subject is not null
@@ -124,6 +195,11 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
         await foreach (var authorization in results.WithCancellation(cancellationToken))
         {
+            if (applyRevocationMarkers)
+            {
+                await ApplyRevocationMarkersAsync(authorization, cancellationToken);
+            }
+
             if (Matches(authorization, status, type, scopes))
             {
                 yield return authorization;
@@ -137,6 +213,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
     {
         await foreach (var authorization in QueryByApplicationAsync(identifier, cancellationToken).WithCancellation(cancellationToken))
         {
+            await ApplyRevocationMarkersAsync(authorization, cancellationToken);
             yield return authorization;
         }
     }
@@ -150,7 +227,14 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
             ConsistentRead = true
         }, cancellationToken);
 
-        return response.Item is null || response.Item.Count == 0 ? null : DynamoDbHelper.ToAuthorization<TAuthorization>(response.Item);
+        if (response.Item is null || response.Item.Count == 0)
+        {
+            return null;
+        }
+
+        var authorization = DynamoDbHelper.ToAuthorization<TAuthorization>(response.Item);
+        await ApplyRevocationMarkersAsync(authorization, cancellationToken);
+        return authorization;
     }
 
     public async IAsyncEnumerable<TAuthorization> FindBySubjectAsync(
@@ -159,6 +243,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
     {
         await foreach (var authorization in QueryBySubjectAsync(subject, applicationId: null, cancellationToken).WithCancellation(cancellationToken))
         {
+            await ApplyRevocationMarkersAsync(authorization, cancellationToken);
             yield return authorization;
         }
     }
@@ -166,10 +251,13 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
     public ValueTask<string?> GetApplicationIdAsync(TAuthorization authorization, CancellationToken cancellationToken)
         => new(authorization.ApplicationId);
 
-    public ValueTask<TResult?> GetAsync<TState, TResult>(
+    public async ValueTask<TResult?> GetAsync<TState, TResult>(
         Func<IQueryable<TAuthorization>, TState, IQueryable<TResult>> query,
         TState state, CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+    {
+        var authorizations = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        return query(authorizations.AsQueryable(), state).FirstOrDefault();
+    }
 
     public ValueTask<DateTimeOffset?> GetCreationDateAsync(TAuthorization authorization, CancellationToken cancellationToken)
         => new(authorization.CreationDate);
@@ -241,7 +329,9 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
                 }
 
                 yielded++;
-                yield return DynamoDbHelper.ToAuthorization<TAuthorization>(item);
+                var authorization = DynamoDbHelper.ToAuthorization<TAuthorization>(item);
+                await ApplyRevocationMarkersAsync(authorization, cancellationToken);
+                yield return authorization;
             }
 
             lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
@@ -249,19 +339,25 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
         while (lastKey is not null && (!count.HasValue || yielded < count.Value));
     }
 
-    public IAsyncEnumerable<TResult> ListAsync<TState, TResult>(
+    public async IAsyncEnumerable<TResult> ListAsync<TState, TResult>(
         Func<IQueryable<TAuthorization>, TState, IQueryable<TResult>> query,
-        TState state, CancellationToken cancellationToken)
-        => throw new NotSupportedException("DynamoDB does not support IQueryable-based queries.");
+        TState state, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var authorizations = await ListAsync(null, null, cancellationToken).ToListAsync(cancellationToken);
+        foreach (var result in query(authorizations.AsQueryable(), state))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return result;
+        }
+    }
 
     public async ValueTask<long> PruneAsync(DateTimeOffset threshold, CancellationToken cancellationToken)
     {
         long deleted = 0;
-        var batch = new List<WriteRequest>(25);
 
         await foreach (var authorization in ScanAuthorizationsAsync(cancellationToken).WithCancellation(cancellationToken))
         {
-            if (deleted + batch.Count >= _options.PruneBatchSize)
+            if (deleted >= _options.PruneBatchSize)
             {
                 break;
             }
@@ -282,23 +378,10 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
                 continue;
             }
 
-            batch.Add(new WriteRequest
+            if (await TryPruneAuthorizationAsync(authorization, cancellationToken))
             {
-                DeleteRequest = new DeleteRequest
-                {
-                    Key = CreateKey(authorization.Id)
-                }
-            });
-
-            if (batch.Count == 25)
-            {
-                deleted += await FlushDeleteBatchAsync(batch, cancellationToken);
+                deleted++;
             }
-        }
-
-        if (batch.Count > 0)
-        {
-            deleted += await FlushDeleteBatchAsync(batch, cancellationToken);
         }
 
         return deleted;
@@ -306,9 +389,10 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
     public async ValueTask<long> RevokeAsync(string? subject, string? client, string? status, string? type, CancellationToken cancellationToken)
     {
+        await WriteRevocationMarkerAsync(subject, client, status, type, cancellationToken);
         long count = 0;
 
-        await foreach (var authorization in FindAsync(subject, client, status, type, scopes: default, cancellationToken).WithCancellation(cancellationToken))
+        await foreach (var authorization in FindCoreAsync(subject, client, status, type, scopes: default, applyRevocationMarkers: false, cancellationToken).WithCancellation(cancellationToken))
         {
             if (await RevokeAuthorizationAsync(authorization.Id, cancellationToken))
             {
@@ -321,6 +405,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
     public async ValueTask<long> RevokeByApplicationIdAsync(string identifier, CancellationToken cancellationToken)
     {
+        await WriteRevocationMarkerAsync(null, identifier, null, null, cancellationToken);
         long count = 0;
 
         await foreach (var authorization in QueryByApplicationAsync(identifier, cancellationToken).WithCancellation(cancellationToken))
@@ -336,6 +421,7 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
     public async ValueTask<long> RevokeBySubjectAsync(string subject, CancellationToken cancellationToken)
     {
+        await WriteRevocationMarkerAsync(subject, null, null, null, cancellationToken);
         long count = 0;
 
         await foreach (var authorization in QueryBySubjectAsync(subject, applicationId: null, cancellationToken).WithCancellation(cancellationToken))
@@ -399,31 +485,77 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
     public async ValueTask UpdateAsync(TAuthorization authorization, CancellationToken cancellationToken)
     {
+        var response = await _client.GetItemAsync(new GetItemRequest
+        {
+            TableName = _options.AuthorizationsTableName,
+            Key = CreateKey(authorization.Id),
+            ConsistentRead = true
+        }, cancellationToken);
+        if (response.Item is null || response.Item.Count == 0)
+        {
+            throw CreateConcurrencyException(null);
+        }
+
+        var stored = DynamoDbHelper.ToAuthorization<TAuthorization>(response.Item);
+        await ApplyRevocationMarkersAsync(stored, cancellationToken);
+        if (string.Equals(stored.Status, "revoked", StringComparison.Ordinal))
+        {
+            authorization.Status = "revoked";
+        }
+
         var expected = authorization.ConcurrencyToken;
         authorization.ConcurrencyToken = Guid.NewGuid().ToString();
         var attributes = ToItem(authorization);
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Put = new Put
+                {
+                    TableName = _options.AuthorizationsTableName,
+                    Item = attributes,
+                    ConditionExpression = "#token = :expected",
+                    ExpressionAttributeNames = new Dictionary<string, string>
+                    {
+                        ["#token"] = "concurrency_token"
+                    },
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                    {
+                        [":expected"] = DynamoDbHelper.ToAttr(expected)
+                    }
+                }
+            }
+        };
+        if (!string.Equals(stored.Status, "revoked", StringComparison.Ordinal))
+        {
+            items.AddRange(RevocationMarkerHelper.CreateNonApplicableConditions(
+                _options.AuthorizationsTableName, "AUTHORIZATION",
+                stored.Subject, stored.ApplicationId, null, stored.Status, stored.Type,
+                stored.CreationDate));
+        }
 
         try
         {
-            await _client.PutItemAsync(new PutItemRequest
+            await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest
             {
-                TableName = _options.AuthorizationsTableName,
-                Item = attributes,
-                ConditionExpression = "#token = :expected",
-                ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    ["#token"] = "concurrency_token"
-                },
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    [":expected"] = DynamoDbHelper.ToAttr(expected)
-                }
+                ClientRequestToken = Guid.NewGuid().ToString(),
+                TransactItems = items
             }, cancellationToken);
         }
         catch (ConditionalCheckFailedException exception)
         {
             authorization.ConcurrencyToken = expected;
             throw CreateConcurrencyException(exception);
+        }
+        catch (TransactionCanceledException exception) when (HasConditionalCheckFailure(exception))
+        {
+            authorization.ConcurrencyToken = expected;
+            throw CreateConcurrencyException(exception);
+        }
+        catch
+        {
+            authorization.ConcurrencyToken = expected;
+            throw;
         }
     }
 
@@ -482,13 +614,14 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
             if (applicationId is not null)
             {
-                expressionValues[":sk"] = DynamoDbHelper.ToAttr($"APP#{applicationId}#");
+                expressionValues[":sk"] = DynamoDbHelper.ToAttr($"APP#{KeyHelper.Sha256(applicationId)}#");
                 request.KeyConditionExpression += " AND begins_with(gsi1_sk, :sk)";
             }
 
             var response = await _client.QueryAsync(request, cancellationToken);
 
-            foreach (var item in response.Items ?? [])
+            var items = await ReadAuthorizationItemsAsync(response.Items ?? [], cancellationToken);
+            foreach (var item in items)
             {
                 yield return DynamoDbHelper.ToAuthorization<TAuthorization>(item);
             }
@@ -518,7 +651,8 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
                 ExclusiveStartKey = lastKey
             }, cancellationToken);
 
-            foreach (var item in response.Items ?? [])
+            var items = await ReadAuthorizationItemsAsync(response.Items ?? [], cancellationToken);
+            foreach (var item in items)
             {
                 yield return DynamoDbHelper.ToAuthorization<TAuthorization>(item);
             }
@@ -556,6 +690,18 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
         while (lastKey is not null);
     }
 
+    private async Task<List<Dictionary<string, AttributeValue>>> ReadAuthorizationItemsAsync(
+        IEnumerable<Dictionary<string, AttributeValue>> indexItems,
+        CancellationToken cancellationToken)
+    {
+        var keys = indexItems.Select(static item => new Dictionary<string, AttributeValue>
+        {
+            ["pk"] = item["pk"],
+            ["sk"] = item["sk"]
+        });
+        return await DynamoDbBatchHelper.GetItemsAsync(_client, _options.AuthorizationsTableName, keys, cancellationToken);
+    }
+
     private static bool Matches(TAuthorization authorization, string? status, string? type, ImmutableArray<string>? scopes)
     {
         if (status is not null && !string.Equals(authorization.Status, status, StringComparison.Ordinal))
@@ -582,49 +728,79 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
 
     private async Task<bool> HasTokensAsync(string authorizationId, CancellationToken cancellationToken)
     {
-        var response = await _client.QueryAsync(new QueryRequest
+        var response = await _client.GetItemAsync(new GetItemRequest
         {
             TableName = _options.TokensTableName,
-            IndexName = AuthorizationIndexName,
-            KeyConditionExpression = "gsi4_pk = :pk",
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                [":pk"] = DynamoDbHelper.ToAttr(KeyHelper.TokenAuthorizationIndexPk(authorizationId))
-            },
-            Limit = 1
+            Key = CreateAuthorizationTokenCountKey(authorizationId),
+            ConsistentRead = true
         }, cancellationToken);
 
-        return (response.Count ?? 0) > 0;
+        return response.Item is { Count: > 0 } && DynamoDbHelper.GetLong(response.Item, "token_count") > 0;
     }
 
-    private async Task<int> FlushDeleteBatchAsync(List<WriteRequest> batch, CancellationToken cancellationToken)
+    private async Task<bool> TryPruneAuthorizationAsync(TAuthorization authorization, CancellationToken cancellationToken)
     {
-        var count = batch.Count;
-        var delay = TimeSpan.FromMilliseconds(50);
-        var requestItems = new Dictionary<string, List<WriteRequest>>
+        var items = new List<TransactWriteItem>
         {
-            [_options.AuthorizationsTableName] = batch
+            new()
+            {
+                Delete = new Delete
+                {
+                    TableName = _options.AuthorizationsTableName,
+                    Key = CreateKey(authorization.Id),
+                    ConditionExpression = "concurrency_token = :token",
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                    {
+                        [":token"] = DynamoDbHelper.ToAttr(authorization.ConcurrencyToken)
+                    }
+                }
+            },
+            new()
+            {
+                Delete = new Delete
+                {
+                    TableName = _options.TokensTableName,
+                    Key = CreateAuthorizationTokenCountKey(authorization.Id),
+                    ConditionExpression = "token_count = :zero",
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                    {
+                        [":zero"] = new AttributeValue { N = "0" }
+                    }
+                }
+            }
         };
 
-        do
+        try
         {
-            var response = await _client.BatchWriteItemAsync(new BatchWriteItemRequest
+            await _client.TransactWriteItemsAsync(new TransactWriteItemsRequest
             {
-                RequestItems = requestItems
+                ClientRequestToken = Guid.NewGuid().ToString(),
+                TransactItems = items
             }, cancellationToken);
-
-            requestItems = response.UnprocessedItems ?? [];
-
-            if (requestItems.Count > 0 && requestItems.Values.Any(items => items.Count > 0))
-            {
-                await Task.Delay(delay, cancellationToken);
-                delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, 1000));
-            }
+            return true;
         }
-        while (requestItems.Count > 0 && requestItems.Values.Any(items => items.Count > 0));
+        catch (TransactionCanceledException exception) when (HasConditionalCheckFailure(exception))
+        {
+            return false;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
 
-        batch.Clear();
-        return count;
+    private static Dictionary<string, AttributeValue> CreateAuthorizationTokenCountKey(string authorizationId)
+        => new()
+        {
+            ["pk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountPk(authorizationId)),
+            ["sk"] = DynamoDbHelper.ToAttr(KeyHelper.AuthorizationTokenCountSk)
+        };
+
+    private static Dictionary<string, AttributeValue> CreateAuthorizationTokenCountItem(string authorizationId)
+    {
+        var item = CreateAuthorizationTokenCountKey(authorizationId);
+        item["token_count"] = new AttributeValue { N = "0" };
+        return item;
     }
 
     private async Task<bool> RevokeAuthorizationAsync(string authorizationId, CancellationToken cancellationToken)
@@ -657,6 +833,41 @@ public class OpenIddictDynamoDbAuthorizationStore<TAuthorization> : IOpenIddictA
         }
     }
 
-    private static OpenIddictExceptions.ConcurrencyException CreateConcurrencyException(Exception exception)
+    private async Task WriteRevocationMarkerAsync(
+        string? subject,
+        string? applicationId,
+        string? status,
+        string? type,
+        CancellationToken cancellationToken)
+    {
+        await RevocationMarkerHelper.WriteAsync(
+            _client, _options.AuthorizationsTableName, "AUTHORIZATION",
+            subject, applicationId, null, status, type,
+            DateTimeOffset.UtcNow, cancellationToken);
+    }
+
+    private async Task ApplyRevocationMarkersAsync(TAuthorization authorization, CancellationToken cancellationToken)
+    {
+        if (string.Equals(authorization.Status, "revoked", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var keys = RevocationMarkerHelper.CreateCandidateKeys(
+            "AUTHORIZATION", authorization.Subject, authorization.ApplicationId, null, authorization.Status, authorization.Type);
+        var markers = await DynamoDbBatchHelper.GetItemsAsync(
+            _client, _options.AuthorizationsTableName, keys, cancellationToken);
+        if (RevocationMarkerHelper.Applies(markers, authorization.CreationDate))
+        {
+            authorization.Status = "revoked";
+        }
+    }
+
+    private static bool HasConditionalCheckFailure(TransactionCanceledException exception)
+        => exception.CancellationReasons is null ||
+           exception.CancellationReasons.Count == 0 ||
+           exception.CancellationReasons.Any(static reason => string.Equals(reason.Code, "ConditionalCheckFailed", StringComparison.Ordinal));
+
+    private static OpenIddictExceptions.ConcurrencyException CreateConcurrencyException(Exception? exception)
         => new("The authorization was concurrently updated and cannot be persisted in its current state.", exception);
 }

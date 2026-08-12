@@ -9,42 +9,47 @@ public static class OpenIddictDynamoDbExtensions
 {
     public static OpenIddictDynamoDbBuilder AddDynamoDb(this OpenIddictCoreBuilder builder)
     {
-        AddStores(builder.Services);
+        ArgumentNullException.ThrowIfNull(builder);
 
-        return new OpenIddictDynamoDbBuilder(builder.Services);
+        builder.SetDefaultApplicationEntity<OpenIddictDynamoDbApplication>();
+        builder.SetDefaultAuthorizationEntity<OpenIddictDynamoDbAuthorization>();
+        builder.SetDefaultScopeEntity<OpenIddictDynamoDbScope>();
+        builder.SetDefaultTokenEntity<OpenIddictDynamoDbToken>();
+        AddStores(builder.Services);
+        builder.Services.TryAddSingleton(static _ => new OpenIddictDynamoDbOptions());
+
+        return new OpenIddictDynamoDbBuilder(builder);
     }
 
     public static OpenIddictDynamoDbBuilder AddDynamoDb(
         this OpenIddictCoreBuilder builder,
         Action<OpenIddictDynamoDbOptions> configuration)
     {
+        ArgumentNullException.ThrowIfNull(configuration);
+
         var options = new OpenIddictDynamoDbOptions();
         configuration(options);
+        options.Validate();
 
         builder.AddDynamoDb();
-        builder.Services.TryAddSingleton<OpenIddictDynamoDbOptions>(_ => options);
+        builder.Services.Replace(ServiceDescriptor.Singleton(options));
 
-        return new OpenIddictDynamoDbBuilder(builder.Services);
+        return new OpenIddictDynamoDbBuilder(builder);
     }
 
     public static OpenIddictDynamoDbBuilder AddDynamoDb(this OpenIddictBuilder builder)
     {
-        AddStores(builder.Services);
-
-        return new OpenIddictDynamoDbBuilder(builder.Services);
+        ArgumentNullException.ThrowIfNull(builder);
+        return builder.AddCore().AddDynamoDb();
     }
 
     public static OpenIddictDynamoDbBuilder AddDynamoDb(
         this OpenIddictBuilder builder,
         Action<OpenIddictDynamoDbOptions> configuration)
     {
-        var options = new OpenIddictDynamoDbOptions();
-        configuration(options);
-
-        builder.AddDynamoDb();
-        builder.Services.TryAddSingleton<OpenIddictDynamoDbOptions>(_ => options);
-
-        return new OpenIddictDynamoDbBuilder(builder.Services);
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configuration);
+        return builder.AddCore().AddDynamoDb(configuration);
     }
 
     private static void AddStores(IServiceCollection services)
@@ -69,46 +74,38 @@ public static class OpenIddictDynamoDbExtensions
 
 public class OpenIddictDynamoDbBuilder
 {
-    private readonly IServiceCollection _services;
+    private readonly OpenIddictCoreBuilder _builder;
 
-    public OpenIddictDynamoDbBuilder(IServiceCollection services)
+    public OpenIddictDynamoDbBuilder(OpenIddictCoreBuilder builder)
     {
-        _services = services;
+        _builder = builder;
     }
 
     public OpenIddictDynamoDbBuilder ReplaceDefaultApplicationEntity<TApplication>()
         where TApplication : OpenIddictDynamoDbApplication, new()
     {
-        _services.AddSingleton(
-            typeof(IOpenIddictApplicationStore<TApplication>),
-            typeof(OpenIddictDynamoDbApplicationStore<TApplication>));
+        _builder.SetDefaultApplicationEntity<TApplication>();
         return this;
     }
 
     public OpenIddictDynamoDbBuilder ReplaceDefaultAuthorizationEntity<TAuthorization>()
         where TAuthorization : OpenIddictDynamoDbAuthorization, new()
     {
-        _services.AddSingleton(
-            typeof(IOpenIddictAuthorizationStore<TAuthorization>),
-            typeof(OpenIddictDynamoDbAuthorizationStore<TAuthorization>));
+        _builder.SetDefaultAuthorizationEntity<TAuthorization>();
         return this;
     }
 
     public OpenIddictDynamoDbBuilder ReplaceDefaultScopeEntity<TScope>()
         where TScope : OpenIddictDynamoDbScope, new()
     {
-        _services.AddSingleton(
-            typeof(IOpenIddictScopeStore<TScope>),
-            typeof(OpenIddictDynamoDbScopeStore<TScope>));
+        _builder.SetDefaultScopeEntity<TScope>();
         return this;
     }
 
     public OpenIddictDynamoDbBuilder ReplaceDefaultTokenEntity<TToken>()
         where TToken : OpenIddictDynamoDbToken, new()
     {
-        _services.AddSingleton(
-            typeof(IOpenIddictTokenStore<TToken>),
-            typeof(OpenIddictDynamoDbTokenStore<TToken>));
+        _builder.SetDefaultTokenEntity<TToken>();
         return this;
     }
 }

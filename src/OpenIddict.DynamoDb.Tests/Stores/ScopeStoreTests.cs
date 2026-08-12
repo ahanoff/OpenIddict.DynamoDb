@@ -59,6 +59,25 @@ public sealed class ScopeStoreTests
     }
 
     [Fact]
+    public async Task CustomScopeProperties_RoundTrip()
+    {
+        var store = new OpenIddictDynamoDbScopeStore<CustomScope>(_fixture.Client, _fixture.Options);
+        var scope = new CustomScope
+        {
+            Id = TestEntities.NewId("scope"),
+            Name = TestEntities.NewId("name"),
+            ConcurrencyToken = Guid.NewGuid().ToString(),
+            TenantId = "tenant-42"
+        };
+
+        await store.CreateAsync(scope, CancellationToken.None);
+        var stored = await store.FindByIdAsync(scope.Id, CancellationToken.None);
+
+        Assert.NotNull(stored);
+        Assert.Equal("tenant-42", stored.TenantId);
+    }
+
+    [Fact]
     public async Task UpdateAsync_PersistsDisplayName()
     {
         var scope = TestEntities.CreateScope();
@@ -390,25 +409,14 @@ public sealed class ScopeStoreTests
     }
 
     [Fact]
-    public async Task CountAsync_WithIQueryable_ThrowsNotSupportedException()
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.CountAsync<OpenIddictDynamoDbScope>(q => q, CancellationToken.None).AsTask());
-    }
-
-    [Fact]
-    public async Task GetAsync_ThrowsNotSupportedException()
+    public async Task IQueryableOverloads_ExecuteAgainstMaterializedResults()
     {
         var scope = TestEntities.CreateScope();
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.GetAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).AsTask());
-    }
+        await _store.CreateAsync(scope, CancellationToken.None);
 
-    [Fact]
-    public async Task ListAsync_WithIQueryable_ThrowsNotSupportedException()
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => _store.ListAsync<object, string>((q, s) => q.Select(_ => _.Id), "state", CancellationToken.None).ToListAsync());
+        Assert.True(await _store.CountAsync(q => q.Where(item => item.Id == scope.Id), CancellationToken.None) >= 1);
+        Assert.Equal(scope.Id, await _store.GetAsync((q, id) => q.Where(item => item.Id == id).Select(item => item.Id), scope.Id, CancellationToken.None));
+        Assert.Equal([scope.Id], await _store.ListAsync((q, id) => q.Where(item => item.Id == id).Select(item => item.Id), scope.Id, CancellationToken.None).ToListAsync());
     }
 
     [Fact]
